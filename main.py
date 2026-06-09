@@ -54,7 +54,7 @@ disparo_tasks = {}  # phone -> asyncio.Task
 session_stats = {}  # phone -> stats dict
 
 # Dashboard
-DASHBOARD_TOKEN = "adminasdasdasdasdadddsdasd12sdasdasd3"
+DASHBOARD_TOKEN = "admin123"
 
 # Multi-bot
 connected_bots = {}  # token -> {"app": Application, "username": str, "name": str, "id": int}
@@ -177,22 +177,22 @@ def validate_init_data(init_data: str) -> dict | None:
         data_check_arr = sorted([f"{k}={v}" for k, v in data.items()])
         data_check_string = "\n".join(data_check_arr)
 
-        secret_key = hmac.new(
-            b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256
-        ).digest()
+        # Tenta validar com o token principal + todos os bots extras
+        all_tokens = [BOT_TOKEN] + list(connected_bots.keys())
+        for token_candidate in all_tokens:
+            secret_key = hmac.new(
+                b"WebAppData", token_candidate.encode(), hashlib.sha256
+            ).digest()
+            calculated_hash = hmac.new(
+                secret_key, data_check_string.encode(), hashlib.sha256
+            ).hexdigest()
+            if calculated_hash == received_hash:
+                if "user" in data:
+                    data["user"] = json.loads(data["user"])
+                return data
 
-        calculated_hash = hmac.new(
-            secret_key, data_check_string.encode(), hashlib.sha256
-        ).hexdigest()
-
-        if calculated_hash != received_hash:
-            print(f"[WARN] initData hash inválido")
-            return None
-
-        if "user" in data:
-            data["user"] = json.loads(data["user"])
-
-        return data
+        print(f"[WARN] initData hash inválido")
+        return None
     except Exception as e:
         print(f"[ERROR] validate_init_data: {e}")
         return None
