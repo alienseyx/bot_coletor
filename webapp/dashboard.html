@@ -201,6 +201,157 @@
             to { transform: rotate(360deg) }
         }
 
+        /* Connect Bot Button */
+        .connect-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #059669, #10b981);
+            border: none;
+            border-radius: 20px;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 700;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: transform .15s, box-shadow .2s;
+            white-space: nowrap
+        }
+
+        .connect-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(16, 185, 129, 0.35)
+        }
+
+        .connect-btn:active {
+            transform: scale(0.96)
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000
+        }
+
+        .modal-box {
+            background: #12121a;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 20px;
+            padding: 28px;
+            width: 90%;
+            max-width: 440px
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px
+        }
+
+        .modal-header h3 {
+            font-size: 18px;
+            font-weight: 800;
+            flex: 1
+        }
+
+        .modal-close {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            color: rgba(255,255,255,0.5);
+            width: 32px;
+            height: 32px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background .2s;
+            font-family: 'Inter', sans-serif
+        }
+
+        .modal-close:hover {
+            background: rgba(255,255,255,0.1)
+        }
+
+        .modal-field {
+            margin-bottom: 12px
+        }
+
+        .modal-field label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: rgba(255,255,255,0.4);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: .5px
+        }
+
+        .connected-bots-section {
+            margin-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            padding-top: 16px
+        }
+
+        .section-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: rgba(255,255,255,0.35);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px
+        }
+
+        .bot-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 10px;
+            margin-bottom: 8px
+        }
+
+        .bot-item-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px
+        }
+
+        .bot-item-name {
+            font-size: 13px;
+            font-weight: 600
+        }
+
+        .bot-item-username {
+            font-size: 11px;
+            color: #34d399
+        }
+
+        .bot-disconnect-btn {
+            background: rgba(248,113,113,0.1);
+            border: 1px solid rgba(248,113,113,0.2);
+            color: #f87171;
+            padding: 5px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            transition: background .2s
+        }
+
+        .bot-disconnect-btn:hover {
+            background: rgba(248,113,113,0.2)
+        }
+
         .uptime-badge {
             background: rgba(16, 185, 129, 0.1);
             border: 1px solid rgba(16, 185, 129, 0.2);
@@ -654,6 +805,7 @@
                 </div>
             </div>
             <div class="header-right">
+                <button class="connect-btn" onclick="openBotModal()">🤖 Conectar Bot</button>
                 <button class="download-btn" id="download-sessions-btn" onclick="downloadSessions()">
                     <span class="btn-icon">📥</span>
                     <span class="btn-spinner"></span>
@@ -735,6 +887,30 @@
                 </div>
                 <div class="log-terminal" id="log-terminal">
                     <div class="log-line" style="color:rgba(255,255,255,0.2)">Aguardando logs...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL CONECTAR BOT -->
+    <div id="bot-modal" class="modal-overlay" style="display:none">
+        <div class="modal-box fade-in">
+            <div class="modal-header">
+                <span style="font-size:24px">🤖</span>
+                <h3>Conectar Bot</h3>
+                <button class="modal-close" onclick="closeBotModal()">✕</button>
+            </div>
+            <div>
+                <div class="modal-field">
+                    <label>Token do Bot</label>
+                    <input type="text" id="bot-token-input" class="login-input" placeholder="Cole o token do bot aqui...">
+                </div>
+                <button class="login-btn" onclick="connectBot()" id="connect-bot-btn">CONECTAR</button>
+                <div class="connected-bots-section">
+                    <div class="section-title">Bots Conectados</div>
+                    <div id="bots-list">
+                        <div style="text-align:center;padding:12px;color:rgba(255,255,255,0.2);font-size:12px">Carregando...</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -951,7 +1127,6 @@
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                // Extrai filename do Content-Disposition ou usa padrão
                 const cd = res.headers.get('Content-Disposition');
                 const match = cd && cd.match(/filename="(.+?)"/);
                 a.download = match ? match[1] : 'sessions.zip';
@@ -966,6 +1141,113 @@
                 btn.disabled = false;
                 btn.classList.remove('loading');
                 btnText.textContent = 'Baixar Sessões';
+            }
+        }
+
+        // === MULTI-BOT ===
+        let connectedBotTokens = [];
+
+        function openBotModal() {
+            document.getElementById('bot-modal').style.display = 'flex';
+            loadBotsList();
+        }
+
+        function closeBotModal() {
+            document.getElementById('bot-modal').style.display = 'none';
+        }
+
+        // Fechar modal ao clicar no overlay
+        document.getElementById('bot-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeBotModal();
+        });
+
+        async function connectBot() {
+            const input = document.getElementById('bot-token-input');
+            const btn = document.getElementById('connect-bot-btn');
+            const botToken = input.value.trim();
+
+            if (!botToken || !botToken.includes(':')) {
+                alert('Token inválido! O formato deve ser: 123456:ABC...');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'CONECTANDO...';
+
+            try {
+                const res = await fetch('/api/dashboard/connect-bot?token=' + encodeURIComponent(token), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({bot_token: botToken})
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    input.value = '';
+                    alert(`✅ Bot @${data.username} conectado com sucesso!`);
+                    loadBotsList();
+                } else {
+                    alert(data.error || 'Erro ao conectar bot');
+                }
+            } catch (e) {
+                console.error('Connect bot error:', e);
+                alert('Erro de conexão');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'CONECTAR';
+            }
+        }
+
+        async function loadBotsList() {
+            try {
+                const res = await fetch('/api/dashboard/bots?token=' + encodeURIComponent(token));
+                const data = await res.json();
+                const list = document.getElementById('bots-list');
+                connectedBotTokens = (data.bots || []).map(b => b.token);
+
+                if (!data.bots || data.bots.length === 0) {
+                    list.innerHTML = '<div style="text-align:center;padding:12px;color:rgba(255,255,255,0.2);font-size:12px">Nenhum bot extra conectado</div>';
+                    return;
+                }
+
+                let html = '';
+                for (let i = 0; i < data.bots.length; i++) {
+                    const bot = data.bots[i];
+                    html += `<div class="bot-item">`;
+                    html += `<div class="bot-item-info">`;
+                    html += `<div class="bot-item-name">${esc(bot.name)}</div>`;
+                    html += `<div class="bot-item-username">@${esc(bot.username)}</div>`;
+                    html += `</div>`;
+                    html += `<button class="bot-disconnect-btn" onclick="disconnectBot(${i})">Desconectar</button>`;
+                    html += `</div>`;
+                }
+                list.innerHTML = html;
+            } catch (e) {
+                console.error('Load bots error:', e);
+            }
+        }
+
+        async function disconnectBot(index) {
+            const botToken = connectedBotTokens[index];
+            if (!botToken) return;
+            if (!confirm('Desconectar este bot?')) return;
+
+            try {
+                const res = await fetch('/api/dashboard/disconnect-bot?token=' + encodeURIComponent(token), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({bot_token: botToken})
+                });
+
+                if (res.ok) {
+                    loadBotsList();
+                } else {
+                    const data = await res.json();
+                    alert(data.error || 'Erro ao desconectar');
+                }
+            } catch (e) {
+                alert('Erro de conexão');
             }
         }
     </script>
