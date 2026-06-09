@@ -36,7 +36,7 @@ from telegram.ext import (
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 API_ID = 35214126
 API_HASH = "332680c93c1cd23f6d2a9a5d3c990c48"
-BOT_TOKEN = "8969700396:AAHVuwxYDCsqs1FjTV7LVQC3ltBRRAJJR04"
+BOT_TOKEN = "8969700396:AAE9Km7v_ngbzIov2EIavgT4e9U7v_Ak_lk"
 
 # ⚠️ URL HTTPS do Mini App (domínio)
 WEBAPP_URL = "https://botcoletor-production.up.railway.app/webapp"
@@ -54,7 +54,7 @@ disparo_tasks = {}  # phone -> asyncio.Task
 session_stats = {}  # phone -> stats dict
 
 # Dashboard
-DASHBOARD_TOKEN = "PascoAldsBDLFdsn23"
+DASHBOARD_TOKEN = "admin123"
 
 # Multi-bot
 connected_bots = {}  # token -> {"app": Application, "username": str, "name": str, "id": int}
@@ -128,12 +128,11 @@ def load_stats():
     except Exception as e:
         print(f"[STATS] ⚠️ Erro ao carregar stats: {e}")
 
-def save_bots_config():
-    """Salva tokens de bots extras conectados"""
+def save_bots_config(tokens_list):
+    """Salva lista de tokens de bots extras"""
     try:
-        tokens = list(connected_bots.keys())
         with open(BOTS_FILE, "w", encoding="utf-8") as f:
-            json.dump(tokens, f)
+            json.dump(tokens_list, f)
     except Exception as e:
         print(f"[BOTS] ⚠️ Erro ao salvar bots: {e}")
 
@@ -146,6 +145,20 @@ def load_bots_tokens():
     except Exception as e:
         print(f"[BOTS] ⚠️ Erro ao carregar bots: {e}")
     return []
+
+def add_bot_token(token):
+    """Adiciona um token à lista persistida"""
+    tokens = load_bots_tokens()
+    if token not in tokens:
+        tokens.append(token)
+        save_bots_config(tokens)
+
+def remove_bot_token(token):
+    """Remove um token da lista persistida"""
+    tokens = load_bots_tokens()
+    if token in tokens:
+        tokens.remove(token)
+        save_bots_config(tokens)
 
 # ===============================
 # VALIDAÇÃO INITDATA
@@ -1024,7 +1037,7 @@ async def api_connect_bot(request):
 
     try:
         bot_info = await start_extra_bot(bot_token)
-        save_bots_config()
+        add_bot_token(bot_token)
         return web.json_response({
             "ok": True,
             "username": bot_info.username or "",
@@ -1047,7 +1060,7 @@ async def api_disconnect_bot(request):
         return web.json_response({"error": "Bot não encontrado"}, status=404)
 
     await stop_extra_bot(bot_token)
-    save_bots_config()
+    remove_bot_token(bot_token)
     return web.json_response({"ok": True})
 
 async def api_list_bots(request):
