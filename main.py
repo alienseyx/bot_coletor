@@ -54,11 +54,12 @@ disparo_tasks = {}  # phone -> asyncio.Task
 session_stats = {}  # phone -> stats dict
 
 # Dashboard
-DASHBOARD_TOKEN = "adm3333333333333333333333333333333333333333333333in123"
+DASHBOARD_TOKEN = "admin123"
 
 # Multi-bot
 connected_bots = {}  # token -> {"app": Application, "username": str, "name": str, "id": int}
-BOTS_FILE = os.path.join(BASE_DIR, "bots.json")
+DATA_DIR = "/app/data" if os.path.isdir("/app/data") else BASE_DIR
+BOTS_FILE = os.path.join(DATA_DIR, "bots.json")
 
 # Log capture — guarda as últimas 5000 linhas
 class LogCapture:
