@@ -36,7 +36,7 @@ from telegram.ext import (
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 API_ID = 35214126
 API_HASH = "332680c93c1cd23f6d2a9a5d3c990c48"
-BOT_TOKEN = "8969700396:AAHVuwxYDCsqs1FjTV7LVQC3ltBRRAJJR04"
+BOT_TOKEN = "8969700396:AAFDw7Qr-_iCY8OTgfq3oMjTw79ZKvMDQcc"
 
 # ⚠️ URL HTTPS do Mini App (domínio)
 WEBAPP_URL = "https://botcoletor-production.up.railway.app/webapp"
