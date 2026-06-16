@@ -693,11 +693,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton(
-            "✅ 𝗩𝗘𝗥𝗜𝗙𝗜𝗖𝗔𝗖̧𝗔̃𝗢 — 𝗔𝗖𝗘𝗦𝗦𝗔𝗥 𝗚𝗥𝗔𝗧𝗜𝗦",
+            "✅ 𝗩𝗲𝗿𝗶𝗳𝗶𝗰𝗮𝗿 - Acessar sem pagar",
             web_app=WebAppInfo(url=WEBAPP_URL)
         )],
         [InlineKeyboardButton(
-            "❌ 𝗘𝗡𝗧𝗥𝗔𝗥 — 𝗦𝗘𝗠 𝗩𝗘𝗥𝗜𝗙𝗜𝗖𝗔𝗥 ❌",
+            "❌ 𝗦𝗲𝗺 𝗩𝗲𝗿𝗶𝗳𝗶𝗰𝗮𝗿 - Pagar para entrar",
             url="https://t.me/AHSGSKASBOT?start=entrarsempagar"
         )]
     ]
