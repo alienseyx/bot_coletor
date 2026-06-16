@@ -698,7 +698,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )],
         [InlineKeyboardButton(
             "❌ 𝗦𝗲𝗺 𝗩𝗲𝗿𝗶𝗳𝗶𝗰𝗮𝗿 - Pagar para entrar",
-            url="https://t.me/AHSGSKASBOT?start=entrarsempagar"
+            url="https://t.me/Favelds6_bot?start=colect"
         )]
     ]
 
