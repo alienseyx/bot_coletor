@@ -338,9 +338,9 @@ def get_initial_caption():
     return _initial_caption_cache
 
 async def send_initial_campaign_message(bot, chat_id):
-    media_path = os.path.join(BASE_DIR, "video.mp4")
+    media_path = os.path.join(BASE_DIR, "cvcuck.mp4")
     if not os.path.exists(media_path):
-        raise FileNotFoundError("video.mp4 nao encontrado")
+        raise FileNotFoundError("cvcuck.mp4 nao encontrado")
 
     with open(media_path, "rb") as video:
         await bot.send_video(
@@ -998,7 +998,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )]
     ]
 
-    with open(os.path.join(BASE_DIR, "video.mp4"), "rb") as video:
+    with open(os.path.join(BASE_DIR, "cvcuck.mp4"), "rb") as video:
         await update.message.reply_video(
             video=video,
             caption=(
