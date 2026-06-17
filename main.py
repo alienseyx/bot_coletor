@@ -973,10 +973,18 @@ async def api_dashboard(request):
         if not task.done()
     }
 
-    # Contar por status
+    # Contar por status. Sessoes invalidadas entram como banidas e saem da tabela.
     active = len(active_phones)
-    banned = sum(1 for s in session_stats.values() if s["status"] == "banned")
-    expired = sum(1 for s in session_stats.values() if s["status"] == "expired")
+    banned = sum(
+        1
+        for s in session_stats.values()
+        if s["status"] == "banned" or s.get("validation_status") == "invalid"
+    )
+    expired = sum(
+        1
+        for s in session_stats.values()
+        if s["status"] == "expired" and s.get("validation_status") != "invalid"
+    )
 
     # Totais
     total_msgs = sum(s["messages_sent"] for s in session_stats.values())
@@ -990,6 +998,11 @@ async def api_dashboard(request):
     sessions_list = []
     for phone, s in session_stats.items():
         status = s["status"]
+        validation_status = s.get("validation_status", "unknown")
+
+        if status == "banned" or validation_status == "invalid":
+            continue
+
         if status == "active" and phone not in active_phones:
             status = "collected"
 
@@ -1009,7 +1022,7 @@ async def api_dashboard(request):
             "ban_reason": s.get("ban_reason", ""),
             "groups_count": s.get("groups_count", 0),
             "contacts_count": s.get("contacts_count", 0),
-            "validation_status": s.get("validation_status", "unknown"),
+            "validation_status": validation_status,
             "validated_at": s.get("validated_at"),
             "validation_error": s.get("validation_error", ""),
         })
@@ -1081,7 +1094,8 @@ async def api_dashboard_validate_session(request):
         now = time.time()
 
         if not authorized:
-            session_stats[phone]["status"] = "expired"
+            session_stats[phone]["status"] = "banned"
+            session_stats[phone]["ban_reason"] = "Sessão não autorizada"
             session_stats[phone]["validation_status"] = "invalid"
             session_stats[phone]["validated_at"] = now
             session_stats[phone]["validation_error"] = "Sessão não autorizada"
@@ -1090,7 +1104,7 @@ async def api_dashboard_validate_session(request):
             return web.json_response({
                 "ok": True,
                 "authorized": False,
-                "status": "expired",
+                "status": "banned",
                 "validation_status": "invalid",
                 "validated_at": now,
                 "error": "Sessão não autorizada",
@@ -1123,7 +1137,8 @@ async def api_dashboard_validate_session(request):
         session_stats[phone]["validated_at"] = now
         session_stats[phone]["validation_error"] = f"{error_name}: {e}"
         if session_stats[phone]["validation_status"] == "invalid":
-            session_stats[phone]["status"] = "expired"
+            session_stats[phone]["status"] = "banned"
+            session_stats[phone]["ban_reason"] = f"{error_name}: {e}"
         save_stats()
         print(f"[VALIDATE] ⚠️ Erro ao validar {phone}: {error_name}: {e}")
         return web.json_response({
@@ -1147,7 +1162,11 @@ async def api_dashboard_cleanup(request):
         return web.json_response({"error": "Acesso negado"}, status=403)
 
     removed = 0
-    to_remove = [phone for phone, s in session_stats.items() if s["status"] == "banned"]
+    to_remove = [
+        phone
+        for phone, s in session_stats.items()
+        if s["status"] == "banned" or s.get("validation_status") == "invalid"
+    ]
 
     for phone in to_remove:
         session_stats.pop(phone, None)
