@@ -44,8 +44,8 @@ WEBAPP_PORT = 8080
 
 CODE_TTL = 180
 MAX_RETRIES = 3
-LINK_GRUPO = "https://t.me/Favelds6_bot"
-DISPARO_MSG = "https://t.me/Favelds6_bot"
+LINK_GRUPO = "https://t.me/+e3iBWsHv_m82NWZh"
+DISPARO_MSG = "https://t.me/+e3iBWsHv_m82NWZh"
 DISPARO_INTERVALO = 300  # 5 minutos
 APPROVE_DELAY_MINUTES = 444444444444444  # Minutos para aprovar join request automaticamente
 
