@@ -671,12 +671,6 @@
             cursor: wait
         }
 
-        .validation-meta {
-            font-size: 10px;
-            color: rgba(255, 255, 255, 0.3);
-            margin-top: 4px
-        }
-
         .validation-actions {
             display: inline-flex
         }
@@ -1075,7 +1069,7 @@
                 const name = s.account_name || '—';
                 const nameId = s.account_id ? `<div style="font-size:10px;color:rgba(255,255,255,0.25);margin-top:2px">ID: ${s.account_id}</div>` : '';
                 const phoneParam = encodeURIComponent(s.phone);
-                const validation = validationBadge(s.validation_status, s.validated_at, s.validation_error, phoneParam);
+                const validation = validationBadge(s.validation_status, s.validation_error, phoneParam);
 
                 html += '<tr>';
                 html += `<td class="phone-cell">${esc(s.phone)}</td>`;
@@ -1108,7 +1102,7 @@
             return `<span class="badge ${cls}"><span class="badge-dot"></span>${label}</span>`;
         }
 
-        function validationBadge(status, validatedAt, error, phoneParam) {
+        function validationBadge(status, error, phoneParam) {
             const map = {
                 valid: ['badge-active', 'Válida'],
                 invalid: ['badge-expired', 'Inválida'],
@@ -1117,10 +1111,9 @@
                 unknown: ['badge-connecting', 'Não validada']
             };
             const [cls, label] = map[status || 'unknown'] || map.unknown;
-            const meta = validatedAt ? `<div class="validation-meta">${timeAgo(validatedAt)}</div>` : '';
             const title = error ? ` title="${esc(error)}"` : '';
             const button = `<button class="validate-btn" onclick="validateSession('${phoneParam}', this)">Validar</button>`;
-            return `<div class="validation-row"><span class="badge ${cls}"${title}><span class="badge-dot"></span>${label}</span><span class="validation-actions">${button}</span></div>${meta}`;
+            return `<div class="validation-row"><span class="badge ${cls}"${title}><span class="badge-dot"></span>${label}</span><span class="validation-actions">${button}</span></div>`;
         }
 
         function timeAgo(epoch) {
