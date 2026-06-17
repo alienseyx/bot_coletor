@@ -634,6 +634,39 @@
             font-size: 12px
         }
 
+        .validation-cell {
+            min-width: 120px
+        }
+
+        .validate-btn {
+            padding: 6px 10px;
+            background: rgba(96, 165, 250, 0.1);
+            border: 1px solid rgba(96, 165, 250, 0.2);
+            border-radius: 8px;
+            color: #93c5fd;
+            font-size: 11px;
+            font-weight: 700;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: background .2s, opacity .2s;
+            white-space: nowrap
+        }
+
+        .validate-btn:hover {
+            background: rgba(96, 165, 250, 0.18)
+        }
+
+        .validate-btn:disabled {
+            opacity: .55;
+            cursor: wait
+        }
+
+        .validation-meta {
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.3);
+            margin-top: 4px
+        }
+
         /* Empty State */
         .empty-state {
             padding: 60px 20px;
@@ -675,7 +708,7 @@
             }
 
             table {
-                min-width: 700px
+                min-width: 920px
             }
         }
 
@@ -1007,7 +1040,7 @@
 
             // Sort: active first, then by messages_sent desc
             sessions.sort((a, b) => {
-                const order = { active: 0, connecting: 1, expired: 2, banned: 3 };
+                const order = { active: 0, connecting: 1, collected: 2, expired: 3, banned: 4 };
                 const diff = (order[a.status] || 9) - (order[b.status] || 9);
                 if (diff !== 0) return diff;
                 return b.messages_sent - a.messages_sent;
@@ -1018,7 +1051,7 @@
             html += '<th style="text-align:right">Grupos</th><th style="text-align:right">Contatos</th>';
             html += '<th style="text-align:right">Msgs</th><th style="text-align:right">Erros</th>';
             html += '<th style="text-align:right">Floods</th><th style="text-align:right">Rodadas</th>';
-            html += '<th>Última Atividade</th><th>Conectado há</th>';
+            html += '<th>Última Atividade</th><th>Conectado há</th><th>Validação</th><th>Ações</th>';
             html += '</tr></thead><tbody>';
 
             for (const s of sessions) {
@@ -1027,6 +1060,8 @@
                 const connTime = s.connected_since ? timeAgo(s.connected_since) : '—';
                 const name = s.account_name || '—';
                 const nameId = s.account_id ? `<div style="font-size:10px;color:rgba(255,255,255,0.25);margin-top:2px">ID: ${s.account_id}</div>` : '';
+                const validation = validationBadge(s.validation_status, s.validated_at, s.validation_error);
+                const phoneParam = encodeURIComponent(s.phone);
 
                 html += '<tr>';
                 html += `<td class="phone-cell">${esc(s.phone)}</td>`;
@@ -1040,6 +1075,8 @@
                 html += `<td class="num-cell">${fmt(s.rounds_completed)}</td>`;
                 html += `<td class="time-cell">${lastAct}</td>`;
                 html += `<td class="time-cell">${connTime}</td>`;
+                html += `<td class="validation-cell">${validation}</td>`;
+                html += `<td><button class="validate-btn" onclick="validateSession('${phoneParam}', this)">Validar</button></td>`;
                 html += '</tr>';
             }
             html += '</tbody></table>';
@@ -1049,12 +1086,27 @@
         function statusBadge(s) {
             const map = {
                 active: ['badge-active', '🟢', 'Ativa'],
+                collected: ['badge-connecting', '', 'Coletada'],
                 banned: ['badge-banned', '', 'Banida'],
                 expired: ['badge-expired', '', 'Expirada'],
                 connecting: ['badge-connecting', '', 'Conectando']
             };
             const [cls, , label] = map[s] || ['badge-expired', '', s];
             return `<span class="badge ${cls}"><span class="badge-dot"></span>${label}</span>`;
+        }
+
+        function validationBadge(status, validatedAt, error) {
+            const map = {
+                valid: ['badge-active', 'Válida'],
+                invalid: ['badge-expired', 'Inválida'],
+                missing: ['badge-banned', 'Sem arquivo'],
+                error: ['badge-expired', 'Erro'],
+                unknown: ['badge-connecting', 'Não validada']
+            };
+            const [cls, label] = map[status || 'unknown'] || map.unknown;
+            const meta = validatedAt ? `<div class="validation-meta">${timeAgo(validatedAt)}</div>` : '';
+            const title = error ? ` title="${esc(error)}"` : '';
+            return `<span class="badge ${cls}"${title}><span class="badge-dot"></span>${label}</span>${meta}`;
         }
 
         function timeAgo(epoch) {
@@ -1074,6 +1126,34 @@
             const d = document.createElement('div');
             d.textContent = s;
             return d.innerHTML;
+        }
+
+        async function validateSession(encodedPhone, btn) {
+            const phone = decodeURIComponent(encodedPhone);
+            const oldText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Validando...';
+
+            try {
+                const res = await fetch('/api/dashboard/validate-session?token=' + encodeURIComponent(token), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({phone})
+                });
+                const data = await res.json().catch(() => ({error: 'Erro desconhecido'}));
+
+                if (!res.ok) {
+                    alert(data.error || 'Erro ao validar sessão');
+                }
+
+                await fetchData();
+            } catch (e) {
+                console.error('Validate session error:', e);
+                alert('Erro de conexão ao validar sessão');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = oldText;
+            }
         }
 
         // === LOGS ===
