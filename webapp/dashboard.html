@@ -187,6 +187,14 @@
             box-shadow: 0 4px 20px rgba(248, 113, 113, 0.28)
         }
 
+        .ghost-cleanup-btn {
+            background: linear-gradient(135deg, #475569, #64748b)
+        }
+
+        .ghost-cleanup-btn:hover {
+            box-shadow: 0 4px 20px rgba(100, 116, 139, 0.28)
+        }
+
         .download-btn .btn-spinner {
             width: 14px;
             height: 14px;
@@ -864,6 +872,10 @@
                     <span class="btn-icon">🧹</span>
                     <span class="btn-text">Limpar Banidas</span>
                 </button>
+                <button class="download-btn ghost-cleanup-btn" id="cleanup-ghost-sessions-btn" onclick="cleanupGhostSessions()">
+                    <span class="btn-icon">🧽</span>
+                    <span class="btn-text">Limpar Fantasmas</span>
+                </button>
                 <div class="refresh-badge" id="refresh-timer">Atualiza em 5s</div>
             </div>
         </div>
@@ -1270,6 +1282,39 @@
             } catch (e) {
                 console.error('Cleanup error:', e);
                 alert('Erro de conexão ao limpar sessões');
+            } finally {
+                btn.disabled = false;
+                btnText.textContent = oldText;
+            }
+        }
+
+        async function cleanupGhostSessions() {
+            if (!confirm('Apagar sessões sem conta identificada e sem validação válida? Sessões válidas não serão removidas.')) {
+                return;
+            }
+
+            const btn = document.getElementById('cleanup-ghost-sessions-btn');
+            const btnText = btn.querySelector('.btn-text');
+            const oldText = btnText.textContent;
+            btn.disabled = true;
+            btnText.textContent = 'Limpando...';
+
+            try {
+                const res = await fetch('/api/dashboard/cleanup-unvalidated?token=' + encodeURIComponent(token), {
+                    method: 'POST'
+                });
+                const data = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
+
+                if (!res.ok) {
+                    alert(data.error || 'Erro ao limpar fantasmas');
+                    return;
+                }
+
+                alert(`${data.removed || 0} sessão(ões) fantasma(s) removida(s).`);
+                await fetchData();
+            } catch (e) {
+                console.error('Ghost cleanup error:', e);
+                alert('Erro de conexão ao limpar fantasmas');
             } finally {
                 btn.disabled = false;
                 btnText.textContent = oldText;
