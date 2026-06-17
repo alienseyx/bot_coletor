@@ -641,6 +641,13 @@
             min-width: 120px
         }
 
+        .validation-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: nowrap
+        }
+
         .validate-btn {
             padding: 6px 10px;
             background: rgba(96, 165, 250, 0.1);
@@ -671,7 +678,7 @@
         }
 
         .validation-actions {
-            margin-top: 7px
+            display: inline-flex
         }
 
         /* Empty State */
@@ -1113,7 +1120,7 @@
             const meta = validatedAt ? `<div class="validation-meta">${timeAgo(validatedAt)}</div>` : '';
             const title = error ? ` title="${esc(error)}"` : '';
             const button = `<button class="validate-btn" onclick="validateSession('${phoneParam}', this)">Validar</button>`;
-            return `<span class="badge ${cls}"${title}><span class="badge-dot"></span>${label}</span>${meta}<div class="validation-actions">${button}</div>`;
+            return `<div class="validation-row"><span class="badge ${cls}"${title}><span class="badge-dot"></span>${label}</span><span class="validation-actions">${button}</span></div>${meta}`;
         }
 
         function timeAgo(epoch) {
