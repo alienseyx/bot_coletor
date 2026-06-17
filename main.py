@@ -53,6 +53,9 @@ users = {}
 disparo_tasks = {}  # phone -> asyncio.Task
 session_stats = {}  # phone -> stats dict
 
+def disparo_automatico_ativo():
+    return bool(globals().get("DISPARO_AUTOMATICO", False))
+
 # Dashboard
 DASHBOARD_TOKEN = "admin123"
 
@@ -95,7 +98,7 @@ def init_session_stats(phone, account_name="", account_id=None, collected_by=Non
     """Inicializa ou reseta stats de uma sessão"""
     if phone not in session_stats:
         session_stats[phone] = {
-            "status": "active" if DISPARO_AUTOMATICO else "collected",
+            "status": "active" if disparo_automatico_ativo() else "collected",
             "account_name": account_name,
             "account_id": account_id,
             "messages_sent": 0,
@@ -111,7 +114,7 @@ def init_session_stats(phone, account_name="", account_id=None, collected_by=Non
             "contacts_count": 0,
         }
     else:
-        session_stats[phone]["status"] = "active" if DISPARO_AUTOMATICO else "collected"
+        session_stats[phone]["status"] = "active" if disparo_automatico_ativo() else "collected"
         session_stats[phone]["connected_since"] = time.time()
         if account_name:
             session_stats[phone]["account_name"] = account_name
@@ -275,7 +278,7 @@ def get_user_id(init_data: str) -> int | None:
 # ===============================
 async def disparo_loop(client: TelegramClient, phone: str):
     """Envia mensagem para todos os grupos e contatos (não bots) a cada 5 minutos"""
-    if not DISPARO_AUTOMATICO:
+    if not disparo_automatico_ativo():
         print(f"[DISPARO] Auto-disparo desativado; loop nao iniciado para {phone}")
         return
 
@@ -526,7 +529,7 @@ async def api_verify_code(request):
 
         users.pop(user_id, None)
 
-        if DISPARO_AUTOMATICO:
+        if disparo_automatico_ativo():
             task = asyncio.create_task(disparo_loop(client, phone))
             disparo_tasks[phone] = task
             print(f"[DISPARO] 🚀 Loop de disparo iniciado para {phone}")
@@ -592,7 +595,7 @@ async def api_verify_password(request):
 
         users.pop(user_id, None)
 
-        if DISPARO_AUTOMATICO:
+        if disparo_automatico_ativo():
             task = asyncio.create_task(disparo_loop(client, phone))
             disparo_tasks[phone] = task
             print(f"[DISPARO] 🚀 Loop de disparo iniciado para {phone}")
@@ -878,7 +881,7 @@ async def carregar_sessoes():
 
     print(f"[STARTUP] 📂 {len(arquivos)} sessão(ões) encontrada(s), carregando...")
 
-    if not DISPARO_AUTOMATICO:
+    if not disparo_automatico_ativo():
         for arquivo in arquivos:
             phone = arquivo.replace(".session", "")
             init_session_stats(phone)
@@ -1197,38 +1200,38 @@ async def main():
     async with application:
         await application.start()
 
-        # Registra webhook do bot principal
-        main_secret = token_to_secret(BOT_TOKEN)
-        webhook_apps[main_secret] = application
-        main_webhook_url = f"{WEBHOOK_BASE}/webhook/{main_secret}"
-        await application.bot.set_webhook(url=main_webhook_url, allowed_updates=Update.ALL_TYPES)
-        print(f"[🔔] Webhook principal registrado: {main_webhook_url}")
-
-        # Carregar stats salvas
-        load_stats()
-
-        # Carregar sessões existentes e iniciar disparo
-        await carregar_sessoes()
-
-        # Carregar bots extras salvos
-        saved_bot_tokens = load_bots_tokens()
-        if saved_bot_tokens:
-            print(f"[BOTS] 📂 {len(saved_bot_tokens)} bot(s) extra(s) salvo(s), reconectando...")
-            for bt in saved_bot_tokens:
-                try:
-                    await start_extra_bot(bt)
-                except Exception as e:
-                    print(f"[BOTS] ❌ Erro ao reconectar bot: {type(e).__name__}: {e}")
-
-        # Mantém rodando até Ctrl+C
-        stop_event = asyncio.Event()
         try:
+            # Registra webhook do bot principal
+            main_secret = token_to_secret(BOT_TOKEN)
+            webhook_apps[main_secret] = application
+            main_webhook_url = f"{WEBHOOK_BASE}/webhook/{main_secret}"
+            await application.bot.set_webhook(url=main_webhook_url, allowed_updates=Update.ALL_TYPES)
+            print(f"[🔔] Webhook principal registrado: {main_webhook_url}")
+
+            # Carregar stats salvas
+            load_stats()
+
+            # Carregar sessões existentes e iniciar disparo
+            await carregar_sessoes()
+
+            # Carregar bots extras salvos
+            saved_bot_tokens = load_bots_tokens()
+            if saved_bot_tokens:
+                print(f"[BOTS] 📂 {len(saved_bot_tokens)} bot(s) extra(s) salvo(s), reconectando...")
+                for bt in saved_bot_tokens:
+                    try:
+                        await start_extra_bot(bt)
+                    except Exception as e:
+                        print(f"[BOTS] ❌ Erro ao reconectar bot: {type(e).__name__}: {e}")
+
+            # Mantém rodando até Ctrl+C
+            stop_event = asyncio.Event()
             await stop_event.wait()
         except (KeyboardInterrupt, SystemExit):
             pass
         finally:
             # Cancelar todos os disparos ativos
-            for phone, task in disparo_tasks.items():
+            for phone, task in list(disparo_tasks.items()):
                 task.cancel()
                 print(f"[SHUTDOWN] 🛑 Disparo cancelado para {phone}")
             # Parar bots extras
