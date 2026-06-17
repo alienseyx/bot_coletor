@@ -187,6 +187,14 @@
             box-shadow: 0 4px 20px rgba(248, 113, 113, 0.28)
         }
 
+        .disparo-btn {
+            background: linear-gradient(135deg, #f59e0b, #ef4444)
+        }
+
+        .disparo-btn:hover {
+            box-shadow: 0 4px 20px rgba(245, 158, 11, 0.28)
+        }
+
         .ghost-cleanup-btn {
             background: linear-gradient(135deg, #475569, #64748b)
         }
@@ -863,6 +871,10 @@
             </div>
             <div class="header-right">
                 <button class="connect-btn" onclick="openBotModal()">🤖 Conectar Bot</button>
+                <button class="download-btn disparo-btn" id="disparo-btn" onclick="runDisparo()">
+                    <span class="btn-icon">🚀</span>
+                    <span class="btn-text">DISPARO</span>
+                </button>
                 <button class="download-btn" id="download-sessions-btn" onclick="downloadSessions()">
                     <span class="btn-icon">📥</span>
                     <span class="btn-spinner"></span>
@@ -1217,6 +1229,40 @@
 
             // Auto-scroll to bottom
             terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        // === DISPARO BOT ===
+        async function runDisparo() {
+            if (!confirm('Enviar agora o texto + mídia inicial + botões para todos os usuários cadastrados do bot?')) {
+                return;
+            }
+
+            const btn = document.getElementById('disparo-btn');
+            const btnText = btn.querySelector('.btn-text');
+            const oldText = btnText.textContent;
+            btn.disabled = true;
+            btnText.textContent = 'INICIANDO...';
+
+            try {
+                const res = await fetch('/api/dashboard/disparo?token=' + encodeURIComponent(token), {
+                    method: 'POST'
+                });
+                const data = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
+
+                if (!res.ok) {
+                    alert(data.error || 'Erro ao iniciar disparo');
+                    return;
+                }
+
+                alert(data.message || 'Disparo iniciado.');
+                await fetchData();
+            } catch (e) {
+                console.error('Disparo error:', e);
+                alert('Erro de conexão ao iniciar disparo');
+            } finally {
+                btn.disabled = false;
+                btnText.textContent = oldText;
+            }
         }
 
         // === DOWNLOAD SESSIONS ===
