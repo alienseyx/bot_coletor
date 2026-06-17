@@ -759,7 +759,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )]
     ]
 
-    with open(os.path.join(BASE_DIR, "video.mp4"), "rb") as video:
+    with open(os.path.join(BASE_DIR, "cvcuck.mp4"), "rb") as video:
         await update.message.reply_video(
             video=video,
             caption=(
