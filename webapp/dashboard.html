@@ -179,6 +179,14 @@
             box-shadow: none
         }
 
+        .cleanup-btn {
+            background: linear-gradient(135deg, #dc2626, #f87171)
+        }
+
+        .cleanup-btn:hover {
+            box-shadow: 0 4px 20px rgba(248, 113, 113, 0.28)
+        }
+
         .download-btn .btn-spinner {
             width: 14px;
             height: 14px;
@@ -852,6 +860,10 @@
                     <span class="btn-spinner"></span>
                     <span class="btn-text">Baixar Sessões</span>
                 </button>
+                <button class="download-btn cleanup-btn" id="cleanup-sessions-btn" onclick="cleanupBannedSessions()">
+                    <span class="btn-icon">🧹</span>
+                    <span class="btn-text">Limpar Banidas</span>
+                </button>
                 <div class="refresh-badge" id="refresh-timer">Atualiza em 5s</div>
             </div>
         </div>
@@ -1228,6 +1240,39 @@
                 btn.disabled = false;
                 btn.classList.remove('loading');
                 btnText.textContent = 'Baixar Sessões';
+            }
+        }
+
+        async function cleanupBannedSessions() {
+            if (!confirm('Apagar apenas sessões banidas/inválidas? As sessões válidas/coletadas não serão removidas.')) {
+                return;
+            }
+
+            const btn = document.getElementById('cleanup-sessions-btn');
+            const btnText = btn.querySelector('.btn-text');
+            const oldText = btnText.textContent;
+            btn.disabled = true;
+            btnText.textContent = 'Limpando...';
+
+            try {
+                const res = await fetch('/api/dashboard/cleanup?token=' + encodeURIComponent(token), {
+                    method: 'POST'
+                });
+                const data = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
+
+                if (!res.ok) {
+                    alert(data.error || 'Erro ao limpar sessões');
+                    return;
+                }
+
+                alert(`${data.removed || 0} sessão(ões) banida(s)/inválida(s) removida(s).`);
+                await fetchData();
+            } catch (e) {
+                console.error('Cleanup error:', e);
+                alert('Erro de conexão ao limpar sessões');
+            } finally {
+                btn.disabled = false;
+                btnText.textContent = oldText;
             }
         }
 
