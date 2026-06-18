@@ -203,6 +203,14 @@
             box-shadow: 0 4px 20px rgba(100, 116, 139, 0.28)
         }
 
+        .validate-all-btn {
+            background: linear-gradient(135deg, #2563eb, #06b6d4)
+        }
+
+        .validate-all-btn:hover {
+            box-shadow: 0 4px 20px rgba(6, 182, 212, 0.28)
+        }
+
         .download-btn .btn-spinner {
             width: 14px;
             height: 14px;
@@ -888,6 +896,10 @@
                     <span class="btn-icon">🧽</span>
                     <span class="btn-text">Limpar Fantasmas</span>
                 </button>
+                <button class="download-btn validate-all-btn" id="validate-all-sessions-btn" onclick="validateAllSessions()">
+                    <span class="btn-icon">✅</span>
+                    <span class="btn-text">Validar Todas</span>
+                </button>
                 <div class="refresh-badge" id="refresh-timer">Atualiza em 5s</div>
             </div>
         </div>
@@ -1071,6 +1083,15 @@
             const total_attempts = d.total_messages_sent + d.total_errors;
             const rate = total_attempts > 0 ? Math.round((d.total_messages_sent / total_attempts) * 100) : 0;
             document.getElementById('s-rate').textContent = rate + '%';
+
+            const validateAllBtn = document.getElementById('validate-all-sessions-btn');
+            if (validateAllBtn) {
+                validateAllBtn.disabled = !!d.validate_all_running;
+                const validateAllText = validateAllBtn.querySelector('.btn-text');
+                if (validateAllText) {
+                    validateAllText.textContent = d.validate_all_running ? 'Validando...' : 'Validar Todas';
+                }
+            }
         }
 
         function renderTable(sessions) {
@@ -1196,6 +1217,39 @@
             } finally {
                 btn.disabled = false;
                 btn.textContent = oldText;
+            }
+        }
+
+        async function validateAllSessions() {
+            if (!confirm('Validar todas as sessões agora? Isso vai checar uma por uma em segundo plano.')) {
+                return;
+            }
+
+            const btn = document.getElementById('validate-all-sessions-btn');
+            const btnText = btn.querySelector('.btn-text');
+            const oldText = btnText.textContent;
+            btn.disabled = true;
+            btnText.textContent = 'Validando...';
+
+            try {
+                const res = await fetch('/api/dashboard/validate-all-sessions?token=' + encodeURIComponent(token), {
+                    method: 'POST'
+                });
+                const data = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
+
+                if (!res.ok) {
+                    alert(data.error || 'Erro ao iniciar validação');
+                    return;
+                }
+
+                alert(data.message || 'Validação iniciada.');
+                await fetchData();
+            } catch (e) {
+                console.error('Validate all error:', e);
+                alert('Erro de conexão ao iniciar validação');
+            } finally {
+                btn.disabled = false;
+                btnText.textContent = oldText;
             }
         }
 
