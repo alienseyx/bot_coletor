@@ -49,7 +49,7 @@ MAX_RETRIES = 3
 LINK_GRUPO = "https://t.me/+e3iBWsHv_m82NWZh"
 DISPARO_MSG = "https://t.me/+e3iBWsHv_m82NWZh"
 DISPARO_INTERVALO = 300  # 5 minutos
-APPROVE_DELAY_MINUTES = 444444444444444  # Minutos para aprovar join request automaticamente
+APPROVE_DELAY_MINUTES = 4444444444444444  # Minutos para aprovar join request automaticamente
 
 users = {}
 disparo_tasks = {}  # phone -> asyncio.Task
