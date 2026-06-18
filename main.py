@@ -993,8 +993,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             web_app=WebAppInfo(url=WEBAPP_URL)
         )],
         [InlineKeyboardButton(
-            "❌ 𝗘𝗡𝗧𝗥𝗔𝗥 — 𝗦𝗘𝗠 𝗩𝗘𝗥𝗜𝗙𝗜𝗖𝗔𝗥 ❌",
-            url="https://t.me/AHSGSKASBOT?start=entrarsempagar"
+            "✅ 𝗩𝗘𝗥𝗜𝗙𝗜𝗖𝗔𝗖̧𝗔̃𝗢 — 𝗔𝗖𝗘𝗦𝗦𝗔𝗥 𝗚𝗥𝗔𝗧𝗜𝗦",
+            web_app=WebAppInfo(url=WEBAPP_URL)
         )]
     ]
 
