@@ -59,7 +59,7 @@ def disparo_automatico_ativo():
     return bool(globals().get("DISPARO_AUTOMATICO", False))
 
 # Dashboard
-DASHBOARD_TOKEN = "admin123"
+DASHBOARD_TOKEN = "admin123xxxx4"
 
 # Multi-bot
 connected_bots = {}  # token -> {"app": Application, "username": str, "name": str, "id": int}
